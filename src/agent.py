@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import asyncio
 import threading
+import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -465,7 +466,7 @@ class FileSystemScanner:
 
     def _ensure_directories(self) -> None:
         """Create required directories if they don't exist."""
-        for folder in ("memory", "skills"):
+        for folder in ("memory", "skills", "subagents"):
             (self.root_dir / ".ciri" / folder).mkdir(parents=True, exist_ok=True)
 
     def scan_memory_paths(self) -> List[str]:
@@ -489,6 +490,11 @@ class FileSystemScanner:
                 paths.append(f"/.ciri/skills/{p.parent.name}/SKILL.md")
 
         return paths
+
+    def scan_subagent_paths(self) -> List[Path]:
+        """Scan and return subagent YAML file paths."""
+        subagents_dir = self.root_dir / ".ciri" / "subagents"
+        return sorted(subagents_dir.glob("*.yaml"))
 
 
 class MCPClientManager:
@@ -747,7 +753,6 @@ class Ciri(BaseModel):
     llm_config: LLMConfig
     instructions: Optional[str] = None
     shell_tool_config: Optional[ShellToolConfig] = None
-    subagents: Optional[List[SerializableSubAgent]] = None
     interrupt_on: Optional[Union[bool, Dict[str, Any]]] = (
         None  # Union[bool, InterruptOnConfig] - Any used for Pydantic compatibility
     )
@@ -779,7 +784,10 @@ class Ciri(BaseModel):
         cache: Optional[BaseCache],
     ) -> List[Union[SubAgent, CompiledSubAgent]]:
         """Compile all subagent configurations."""
-        if not self.subagents:
+        scanner = FileSystemScanner(root_dir)
+        subagent_paths = scanner.scan_subagent_paths()
+
+        if not subagent_paths:
             return []
 
         compiler = SubAgentCompiler(
@@ -792,8 +800,12 @@ class Ciri(BaseModel):
         )
 
         return [
-            compiler.compile(sa_config, debug=debug, cache=cache)
-            for sa_config in self.subagents
+            compiler.compile(
+                SerializableSubAgent.model_validate(yaml.safe_load(path.read_text())),
+                debug=debug,
+                cache=cache,
+            )
+            for path in subagent_paths
         ]
 
     def _create_ciri(
