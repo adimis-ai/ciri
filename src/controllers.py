@@ -58,17 +58,11 @@ class CiriConfig:
     """Configuration for CiriController."""
 
     sqlite_url: Optional[str] = None
-    embedding_dims: int = 1024
-    embedding_index_fields: str = "$"
 
     @classmethod
     def from_env(cls) -> "CiriConfig":
         """Create configuration from environment variables."""
-        return cls(
-            sqlite_url=os.getenv("SQLITE_URL"),
-            embedding_dims=int(os.getenv("EMBEDDING_DIMS", "1024")),
-            embedding_index_fields=os.getenv("EMBEDDING_INDEX_FIELDS", "$"),
-        )
+        return cls(sqlite_url=os.getenv("SQLITE_URL"))
 
     def validate(self) -> None:
         """Validate configuration values."""
@@ -79,10 +73,9 @@ class CiriConfig:
 
 
 class _CacheManager:
-    """Manages singleton instances for embeddings, store, and checkpointer."""
+    """Manages singleton instances for store, and checkpointer."""
 
     def __init__(self):
-        self._embeddings = None
         self._store = None
         self._checkpointer = None
         self._conn = None
@@ -103,18 +96,6 @@ class _CacheManager:
             )
             self._sqlite_url = sqlite_url
         return self._conn
-
-    def get_embeddings(self):
-        """Get or create the cached embeddings instance."""
-        if self._embeddings is None:
-            from .utils import initialize_embeddings
-
-            logger.info(
-                "Initializing embeddings (this may take a moment on first load)..."
-            )
-            self._embeddings = initialize_embeddings()
-            logger.info("Embeddings initialized and cached")
-        return self._embeddings
 
     def get_store(self, sqlite_url: str, config: CiriConfig) -> SqliteStore:
         """Get or create the cached SqliteStore instance."""
