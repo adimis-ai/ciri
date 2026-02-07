@@ -260,8 +260,12 @@ class CiriApp(App):
         with Container(id="main-container"):
             with Horizontal(id="chat-header"):
                 yield Label("CIRI // NEXUS", id="chat-title")
-                yield Button("📜", id="btn-history", classes="header-btn", tooltip="History")
-                yield Button("＋", id="btn-new-chat", classes="header-btn", tooltip="New Chat")
+                yield Button(
+                    "📜", id="btn-history", classes="header-btn", tooltip="History"
+                )
+                yield Button(
+                    "＋", id="btn-new-chat", classes="header-btn", tooltip="New Chat"
+                )
 
             with ScrollableContainer(id="chat-history"):
                 yield Message("Initializing Ciri Core...", "system")
@@ -354,7 +358,7 @@ class CiriApp(App):
         """Show the thread history modal."""
         if not self.controller:
             return
-        
+
         threads = self.controller.list_threads()
         self.push_screen(ThreadHistoryScreen(threads), self.switch_thread)
 
@@ -366,8 +370,15 @@ class CiriApp(App):
             state = self.controller.compiled_ciri.get_state(
                 {"configurable": {"thread_id": self.current_thread_id}}
             )
-            if not (state and state.values and "messages" in state.values and state.values["messages"]):
-                self.post_message_to_history("Current thread is already empty.", "system")
+            if not (
+                state
+                and state.values
+                and "messages" in state.values
+                and state.values["messages"]
+            ):
+                self.post_message_to_history(
+                    "Current thread is already empty.", "system"
+                )
                 return
 
         new_id = str(uuid.uuid4())
@@ -378,7 +389,7 @@ class CiriApp(App):
         """Switch to a different thread and load its history."""
         if not thread_id:
             return
-            
+
         self.current_thread_id = thread_id
         history = self.query_one("#chat-history", ScrollableContainer)
         history.query("*").remove()
@@ -412,7 +423,7 @@ class CiriApp(App):
             return
 
         event.input.value = ""
-        
+
         # Auto-create thread if none selected
         if not self.current_thread_id:
             self.current_thread_id = str(uuid.uuid4())
