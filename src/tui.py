@@ -22,6 +22,7 @@ from textual.widgets import (
 )
 from textual.binding import Binding
 from textual.worker import Worker, WorkerState
+from textual.screen import ModalScreen
 from textual import on, work
 from textual.reactive import reactive
 from rich.markdown import Markdown
@@ -46,48 +47,29 @@ Screen {
     color: $text;
 }
 
-#sidebar {
-    width: 35;
-    dock: left;
-    background: $surface;
-    border-right: tall $accent;
-    height: 1fr;
-}
-
-#sidebar-title {
-    padding: 1;
-    background: $accent;
-    color: $bg;
-    text-align: center;
-    text-style: bold;
-}
-
-#new-thread-btn {
-    width: 1fr;
-    margin: 1;
-}
-
-#thread-list {
-    background: $surface;
-}
-
-.thread-item {
-    padding: 1;
-    border-bottom: solid $border;
-}
-
-.thread-item:hover {
-    background: #1e1e24;
-}
-
-.thread-item.selected {
-    background: #2563eb;
-    color: white;
-}
-
 #main-container {
     height: 1fr;
     padding: 1;
+}
+
+#chat-header {
+    height: 3;
+    background: $surface;
+    border-bottom: solid $border;
+    padding: 0 1;
+    align: left middle;
+}
+
+#chat-title {
+    width: 1fr;
+    text-style: bold;
+    color: $accent;
+    padding-left: 1;
+}
+
+.header-btn {
+    min-width: 5;
+    margin: 0 1;
 }
 
 #chat-history {
@@ -159,20 +141,80 @@ Input:focus {
     color: $accent;
     display: none;
 }
+
+/* History Modal Styles */
+ThreadHistoryScreen {
+    align: center middle;
+}
+
+#history-panel {
+    width: 40;
+    height: 30;
+    background: $surface;
+    border: thick $accent;
+    padding: 1;
+}
+
+#history-title {
+    text-align: center;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $accent;
+}
+
+#history-list {
+    height: 1fr;
+    border: solid $border;
+}
+
+.history-item {
+    padding: 1;
+    border-bottom: solid $border;
+}
+
+.history-item:hover {
+    background: #1e1e24;
+}
 """
 
 
 class ThreadItem(ListItem):
-    """A widget to represent a thread in the sidebar."""
+    """A widget to represent a thread in the history."""
 
     def __init__(self, thread_dict: dict):
         super().__init__()
         self.thread_id = thread_dict["id"]
         self.thread_title = thread_dict.get("title") or f"Thread {self.thread_id[:8]}"
-        self.add_class("thread-item")
+        self.add_class("history-item")
 
     def compose(self) -> ComposeResult:
         yield Label(self.thread_title)
+
+
+class ThreadHistoryScreen(ModalScreen):
+    """A modal screen to show thread history."""
+
+    def __init__(self, threads: List[dict]):
+        super().__init__()
+        self.threads = threads
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="history-panel"):
+            yield Label("CHAT HISTORY", id="history-title")
+            with ListView(id="history-list"):
+                for t in self.threads:
+                    yield ThreadItem(t)
+            with Horizontal():
+                yield Button("Close", variant="error", id="close-history")
+
+    @on(ListView.Selected, "#history-list")
+    def on_thread_selected(self, event: ListView.Selected) -> None:
+        if isinstance(event.item, ThreadItem):
+            self.dismiss(event.item.thread_id)
+
+    @on(Button.Pressed, "#close-history")
+    def close_history(self) -> None:
+        self.dismiss(None)
 
 
 class Message(Static):
@@ -199,7 +241,8 @@ class CiriApp(App):
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=True),
         Binding("ctrl+l", "clear_chat", "Clear Chat", show=True),
-        Binding("ctrl+b", "toggle_sidebar", "Toggle Sidebar", show=True),
+        Binding("ctrl+h", "show_history", "History", show=True),
+        Binding("ctrl+n", "new_thread", "New Chat", show=True),
     ]
 
     def __init__(self, **kwargs):
@@ -214,45 +257,44 @@ class CiriApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal():
-            with Vertical(id="sidebar"):
-                yield Label("HISTORY", id="sidebar-title")
-                yield Button("New Chat", variant="primary", id="new-thread-btn")
-                yield ListView(id="thread-list")
+        with Container(id="main-container"):
+            with Horizontal(id="chat-header"):
+                yield Label("CIRI // NEXUS", id="chat-title")
+                yield Button("📜", id="btn-history", classes="header-btn", tooltip="History")
+                yield Button("＋", id="btn-new-chat", classes="header-btn", tooltip="New Chat")
 
-            with Container(id="main-container"):
-                with ScrollableContainer(id="chat-history"):
-                    yield Message("Initializing Ciri Core...", "system")
+            with ScrollableContainer(id="chat-history"):
+                yield Message("Initializing Ciri Core...", "system")
 
-                yield LoadingIndicator(id="loader")
+            yield LoadingIndicator(id="loader")
 
-                with Vertical(id="interrupt-panel"):
-                    yield Label(
-                        "Interrupt Detected: What would you like to do?",
-                        id="interrupt-label",
+            with Vertical(id="interrupt-panel"):
+                yield Label(
+                    "Interrupt Detected: What would you like to do?",
+                    id="interrupt-label",
+                )
+                with Horizontal():
+                    yield Button(
+                        "Approve",
+                        variant="success",
+                        id="btn-approve",
+                        classes="interrupt-btn",
                     )
-                    with Horizontal():
-                        yield Button(
-                            "Approve",
-                            variant="success",
-                            id="btn-approve",
-                            classes="interrupt-btn",
-                        )
-                        yield Button(
-                            "Edit",
-                            variant="warning",
-                            id="btn-edit",
-                            classes="interrupt-btn",
-                        )
-                        yield Button(
-                            "Reject",
-                            variant="error",
-                            id="btn-reject",
-                            classes="interrupt-btn",
-                        )
+                    yield Button(
+                        "Edit",
+                        variant="warning",
+                        id="btn-edit",
+                        classes="interrupt-btn",
+                    )
+                    yield Button(
+                        "Reject",
+                        variant="error",
+                        id="btn-reject",
+                        classes="interrupt-btn",
+                    )
 
-                with Horizontal(id="input-area"):
-                    yield Input(placeholder="Ask Ciri anything...", id="user-input")
+            with Horizontal(id="input-area"):
+                yield Input(placeholder="Ask Ciri anything...", id="user-input")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -285,13 +327,14 @@ class CiriApp(App):
             )
 
             self.controller.compile(ciri)
-            self.call_from_thread(self.refresh_thread_list)
 
             threads = self.controller.list_threads()
             if threads:
+                # By default, don't auto-select if we want to show a clean state or auto-create on first message
+                # But for now, let's load the last one if it exists
                 self.call_from_thread(self.switch_thread, threads[0]["id"])
             else:
-                self.call_from_thread(self.action_new_thread)
+                self.current_thread_id = None
 
             self.call_from_thread(
                 self.post_message_to_history,
@@ -306,32 +349,39 @@ class CiriApp(App):
     def update_status(self, text: str) -> None:
         self.sub_title = text
 
-    def refresh_thread_list(self) -> None:
-        """Fetch threads from controller and update UI."""
-        thread_list_view = self.query_one("#thread-list", ListView)
-        thread_list_view.clear()
-
+    @on(Button.Pressed, "#btn-history")
+    def action_show_history(self) -> None:
+        """Show the thread history modal."""
+        if not self.controller:
+            return
+        
         threads = self.controller.list_threads()
-        for t in threads:
-            thread_list_view.append(ThreadItem(t))
+        self.push_screen(ThreadHistoryScreen(threads), self.switch_thread)
 
-    @on(Button.Pressed, "#new-thread-btn")
+    @on(Button.Pressed, "#btn-new-chat")
     def action_new_thread(self) -> None:
+        """Create a new thread if current one has messages."""
+        if self.current_thread_id:
+            # Check if thread has messages
+            state = self.controller.compiled_ciri.get_state(
+                {"configurable": {"thread_id": self.current_thread_id}}
+            )
+            if not (state and state.values and "messages" in state.values and state.values["messages"]):
+                self.post_message_to_history("Current thread is already empty.", "system")
+                return
+
         new_id = str(uuid.uuid4())
         self.controller.create_thread(new_id)
-        self.refresh_thread_list()
         self.switch_thread(new_id)
 
-    @on(ListView.Selected, "#thread-list")
-    def on_thread_selected(self, event: ListView.Selected) -> None:
-        if isinstance(event.item, ThreadItem):
-            self.switch_thread(event.item.thread_id)
-
-    def switch_thread(self, thread_id: str) -> None:
+    def switch_thread(self, thread_id: Optional[str]) -> None:
         """Switch to a different thread and load its history."""
+        if not thread_id:
+            return
+            
         self.current_thread_id = thread_id
         history = self.query_one("#chat-history", ScrollableContainer)
-        history.clear()
+        history.query("*").remove()
         self.load_history()
         self.update_status(f"Thread: {thread_id[:8]}")
 
@@ -362,6 +412,13 @@ class CiriApp(App):
             return
 
         event.input.value = ""
+        
+        # Auto-create thread if none selected
+        if not self.current_thread_id:
+            self.current_thread_id = str(uuid.uuid4())
+            self.controller.create_thread(self.current_thread_id)
+            self.update_status(f"Thread: {self.current_thread_id[:8]}")
+
         self.post_message_to_history(content, "user")
         self.process_chat(content)
 
@@ -379,11 +436,9 @@ class CiriApp(App):
                 self.call_from_thread(self.handle_event, event)
 
             # After successful interaction, update thread timestamp
-            # We don't have a specific title generation logic here, but we update updated_at
             self.controller.update_thread_title(
                 self.current_thread_id, f"Chat {datetime.now().strftime('%H:%M')}"
             )
-            self.call_from_thread(self.refresh_thread_list)
 
         except Exception as e:
             self.call_from_thread(self.post_message_to_history, f"Error: {e}", "system")
@@ -465,12 +520,8 @@ class CiriApp(App):
             self.is_streaming = False
             self.call_from_thread(self.show_loader, False)
 
-    def action_toggle_sidebar(self) -> None:
-        sidebar = self.query_one("#sidebar")
-        sidebar.display = not sidebar.display
-
     def action_clear_chat(self) -> None:
-        self.query_one("#chat-history", ScrollableContainer).clear()
+        self.query_one("#chat-history", ScrollableContainer).query("*").remove()
 
 
 if __name__ == "__main__":
