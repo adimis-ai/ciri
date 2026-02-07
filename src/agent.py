@@ -752,14 +752,14 @@ class Ciri(BaseModel):
 
     llm_config: LLMConfig
     instructions: Optional[str] = None
+    include_follow_up_with_human_tool: bool = True
+    mcp_connections: Optional[Dict[str, Any]] = None
     shell_tool_config: Optional[ShellToolConfig] = None
+    crawler_browser_config: Optional[WebCrawlerBrowserConfig] = None
+    web_surfer_browser_config: Optional[WebSurferBrowserConfig] = None
     interrupt_on: Optional[Union[bool, Dict[str, Any]]] = (
         None  # Union[bool, InterruptOnConfig] - Any used for Pydantic compatibility
     )
-    include_follow_up_with_human_tool: bool = True
-    crawler_browser_config: Optional[WebCrawlerBrowserConfig] = None
-    web_surfer_browser_config: Optional[WebSurferBrowserConfig] = None
-    mcp_connections: Optional[Dict[str, Any]] = None
 
     def _initialize_browsers(self) -> tuple[Optional[Browser], Optional[BrowserConfig]]:
         """Initialize browser configurations."""
