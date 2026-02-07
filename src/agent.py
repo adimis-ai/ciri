@@ -60,15 +60,6 @@ Choose the least powerful tool that accomplishes the task. Escalate only when ne
 
 Never fabricate tool outputs. If a task requires external data, use a tool.
 
-# Filesystem
-
-You have a virtualized filesystem with persistent storage at these paths:
-
-- `/memory/` — Long-term memory that persists across sessions. Store facts, preferences, and context worth retaining.
-- `/skills/` — Structured skill definitions. Read relevant skills before domain-specific tasks to inform your approach.
-
-The root path `/` maps to the user's real local filesystem. All file operations have real-world impact.
-
 **File safety:** Always read before modifying. Never delete or overwrite without explicit user instruction.
 
 # Operating Principles
@@ -76,7 +67,7 @@ The root path `/` maps to the user's real local filesystem. All file operations 
 - **Plan before complex actions.** For multi-step or irreversible operations, state your plan before executing. For simple tasks, act directly.
 - **Report failures transparently.** State what failed, why, and the recommended next step. Never silently ignore errors or fabricate success.
 - **Protect user data.** Treat the filesystem as real and permanent. Prefer non-destructive operations.
-- **Be concise.** State what you did, found, or need — then stop. No filler, no hedging, no meta-commentary, no emojis.
+- **Be concise.** State what you did, found, or need, then stop. No filler, no hedging, no meta-commentary, no emojis.
 """
 
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -469,27 +460,27 @@ class FileSystemScanner:
     def _ensure_directories(self) -> None:
         """Create required directories if they don't exist."""
         for folder in ("memory", "skills"):
-            (self.root_dir / folder).mkdir(parents=True, exist_ok=True)
+            (self.root_dir / ".ciri" / folder).mkdir(parents=True, exist_ok=True)
 
     def scan_memory_paths(self) -> List[str]:
         """Scan and return memory file paths."""
-        paths = ["/memory/"]
-        memory_dir = self.root_dir / "memory"
+        paths = ["/.ciri/memory/"]
+        memory_dir = self.root_dir / ".ciri" / "memory"
 
         for p in sorted(memory_dir.glob("*.md")):
             if p.is_file():
-                paths.append(f"/memory/{p.name}")
+                paths.append(f"/.ciri/memory/{p.name}")
 
         return paths
 
     def scan_skills_paths(self) -> List[str]:
         """Scan and return skills file paths."""
-        paths = ["/skills/"]
-        skills_dir = self.root_dir / "skills"
+        paths = ["/.ciri/skills/"]
+        skills_dir = self.root_dir / ".ciri" / "skills"
 
         for p in sorted(skills_dir.glob("*/SKILL.md")):
             if p.is_file():
-                paths.append(f"/skills/{p.parent.name}/SKILL.md")
+                paths.append(f"/.ciri/skills/{p.parent.name}/SKILL.md")
 
         return paths
 
