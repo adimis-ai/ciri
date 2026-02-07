@@ -22,7 +22,18 @@ from langchain_community.tools import DuckDuckGoSearchResults
 from langchain.chat_models import init_chat_model, BaseChatModel
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from browser_use.browser.profile import BrowserProfile, ProxySettings
-from typing import Optional, List, Dict, Literal, Union, Any, Sequence, Mapping, Tuple
+from typing import (
+    Optional,
+    List,
+    Dict,
+    Literal,
+    Union,
+    Any,
+    Sequence,
+    Mapping,
+    Tuple,
+    Type,
+)
 from typing_extensions import NotRequired, TypedDict
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.agents.middleware.shell_tool import (
@@ -88,7 +99,7 @@ def _run_coroutine_sync(coro):
         nonlocal result, exception
         try:
             result = asyncio.run(coro)
-        except Exception as exc:
+        except BaseException as exc:
             exception = exc
 
     thread = threading.Thread(target=_target)
@@ -110,21 +121,16 @@ class LLMConfig(BaseModel):
 
     @cached_property
     def _parsed_model(self) -> Tuple[str | None, str]:
-        """
-        Parse model string once.
-
-        Returns:
-            (provider, model_name)
-        """
-        if "/" in self.model:  # openrouter format
-            return tuple(self.model.split("/", 1))
-        if ":" in self.model:  # direct provider format
+        if ":" in self.model:  # langchain direct provider:model
             return tuple(self.model.split(":", 1))
+        if "/" in self.model:  # openrouter provider/model
+            return tuple(self.model.split("/", 1))
         return None, self.model
 
     @cached_property
     def _is_openrouter(self) -> bool:
-        return "/" in self.model
+        # provider/model AND provider not explicitly specified via provider:model
+        return "/" in self.model and ":" not in self.model
 
     @cached_property
     def _resolved_api_config(self) -> Dict[str, Any]:
@@ -195,14 +201,12 @@ class LLMConfig(BaseModel):
         return init_chat_model(model=self.model, **config)
 
     def init_browser_use_model(self) -> ChatOpenRouter:
-        """
-        Initialize Browser-Use OpenRouter model.
-        """
         if not self._is_openrouter:
             raise ValueError("BrowserUse requires an OpenRouter model.")
 
-        # shallow copy to avoid mutation of cached config
         config = {k: v for k, v in self._resolved_api_config.items() if k != "base_url"}
+
+        # IMPORTANT: pass FULL router model string
         return ChatOpenRouter(model=self.model, **config)
 
 
@@ -536,11 +540,11 @@ class MiddlewareBuilder:
         """Build shell tool middleware."""
         return ShellToolMiddleware(
             workspace_root=self.root_dir,
-            env=shell_config.env if shell_config else None,
-            startup_commands=shell_config.startup_commands if shell_config else None,
-            shutdown_commands=shell_config.shutdown_commands if shell_config else None,
-            redaction_rules=shell_config.redaction_rules if shell_config else None,
-            shell_command=shell_config.shell_command if shell_config else None,
+            env=getattr(shell_config, "env", None),
+            startup_commands=getattr(shell_config, "startup_commands", None),
+            shutdown_commands=getattr(shell_config, "shutdown_commands", None),
+            redaction_rules=getattr(shell_config, "redaction_rules", None),
+            shell_command=getattr(shell_config, "shell_command", None),
         )
 
 
@@ -574,12 +578,13 @@ class ToolsBuilder:
 
         tools.append(DuckDuckGoSearchResults(name="simple_web_search"))
         tools.append(build_web_crawler_tool(browser_config=self.crawler_browser_config))
-        tools.append(
-            build_web_surfer_tool(
-                llm=self.llm_config.init_browser_use_model(),
-                browser=self.surfer_browser,
+        if self.surfer_browser is not None:
+            tools.append(
+                build_web_surfer_tool(
+                    llm=self.llm_config.init_browser_use_model(),
+                    browser=self.surfer_browser,
+                )
             )
-        )
 
         if include_follow_up_with_human:
             tools.append(follow_up_with_human)
@@ -604,7 +609,7 @@ class ToolsBuilder:
                 build_web_crawler_tool(browser_config=self.crawler_browser_config)
             )
 
-        if include_web_surfer:
+        if include_web_surfer and self.surfer_browser:
             tools.append(
                 build_web_surfer_tool(
                     browser=self.surfer_browser,
@@ -739,9 +744,6 @@ class Ciri(BaseModel):
 
     llm_config: LLMConfig
     instructions: Optional[str] = None
-    filesystem_virtual_mode: bool = False
-    filesystem_max_file_size_mb: int = 10
-    filesystem_root_dir: Optional[Union[str, Path]] = None
     shell_tool_config: Optional[ShellToolConfig] = None
     subagents: Optional[List[SerializableSubAgent]] = None
     interrupt_on: Optional[Union[bool, Dict[str, Any]]] = (
@@ -752,31 +754,15 @@ class Ciri(BaseModel):
     web_surfer_browser_config: Optional[WebSurferBrowserConfig] = None
     mcp_connections: Optional[Dict[str, Any]] = None
 
-    @field_validator("filesystem_root_dir", mode="before")
-    @classmethod
-    def validate_root_dir(cls, v):
-        """Validate and convert root directory to Path."""
-        if v is None:
-            return Path.cwd()
-        return Path(v) if not isinstance(v, Path) else v
-
-    def _get_root_dir(self) -> Path:
-        """Get root directory as Path object."""
-        return (
-            self.filesystem_root_dir
-            if isinstance(self.filesystem_root_dir, Path)
-            else Path(self.filesystem_root_dir or Path.cwd())
-        )
-
     def _initialize_browsers(self) -> tuple[Optional[Browser], Optional[BrowserConfig]]:
         """Initialize browser configurations."""
         surfer_browser = (
-            Browser(**self.web_surfer_browser_config.model_dump())
+            Browser(**self.web_surfer_browser_config.model_dump(exclude_none=True))
             if self.web_surfer_browser_config
             else None
         )
         crawler_browser = (
-            BrowserConfig(**self.crawler_browser_config.model_dump())
+            BrowserConfig(**self.crawler_browser_config.model_dump(exclude_none=True))
             if self.crawler_browser_config
             else None
         )
@@ -784,6 +770,7 @@ class Ciri(BaseModel):
 
     def _compile_subagents(
         self,
+        root_dir: Path,
         surfer_browser: Optional[Browser],
         crawler_browser_config: Optional[BrowserConfig],
         debug: bool,
@@ -794,7 +781,7 @@ class Ciri(BaseModel):
             return []
 
         compiler = SubAgentCompiler(
-            root_dir=self._get_root_dir(),
+            root_dir=root_dir,
             parent_llm_config=self.llm_config,
             parent_shell_config=self.shell_tool_config,
             parent_mcp_connections=self.mcp_connections,
@@ -809,6 +796,7 @@ class Ciri(BaseModel):
 
     def _create_ciri(
         self,
+        root_dir: Path,
         store: BaseStore,
         checkpointer: Checkpointer,
         surfer_browser: Optional[Browser],
@@ -818,12 +806,10 @@ class Ciri(BaseModel):
         cache: Optional[BaseCache] = None,
         context_schema: Optional[Any] = None,
         tools: Optional[List[BaseTool]] = None,
-        response_format: Optional[BaseModel] = None,
+        response_format: Optional[Type[BaseModel]] = None,
         middleware: Optional[List[AgentMiddleware]] = None,
     ):
         """Create the CIRI agent instance (private method)."""
-        root_dir = self._get_root_dir()
-
         # Get MCP tools
         mcp_tools = MCPClientManager.get_tools(self.mcp_connections)
 
@@ -835,8 +821,6 @@ class Ciri(BaseModel):
         # Create backend
         backend = FilesystemBackend(
             root_dir=root_dir,
-            virtual_mode=self.filesystem_virtual_mode,
-            max_file_size_mb=self.filesystem_max_file_size_mb,
         )
 
         # Build middleware
@@ -899,28 +883,33 @@ class Ciri(BaseModel):
         self,
         store: BaseStore,
         checkpointer: Checkpointer,
+        filesystem_root_dir: Union[str, Path],
         *,
         debug: bool = False,
         cache: Optional[BaseCache] = None,
         context_schema: Optional[Any] = None,
         tools: Optional[List[BaseTool]] = None,
-        response_format: Optional[BaseModel] = None,
+        response_format: Optional[Type[BaseModel]] = None,
         middleware: Optional[List[AgentMiddleware]] = None,
     ):
-        """Compile the CIRI agent with all configurations."""
+        if not filesystem_root_dir:
+            raise ValueError("filesystem_root_dir is required")
+
+        root_dir = Path(filesystem_root_dir).resolve()
+
         # Initialize browsers
         surfer_browser, crawler_browser_config = self._initialize_browsers()
 
-        # Compile subagents
         compiled_subagents = self._compile_subagents(
+            root_dir=root_dir,
             surfer_browser=surfer_browser,
             crawler_browser_config=crawler_browser_config,
             debug=debug,
             cache=cache,
         )
 
-        # Create and return agent
         return self._create_ciri(
+            root_dir=root_dir,
             store=store,
             checkpointer=checkpointer,
             surfer_browser=surfer_browser,
@@ -933,10 +922,3 @@ class Ciri(BaseModel):
             response_format=response_format,
             middleware=middleware,
         )
-
-
-import langchain_mcp_adapters.sessions
-
-langchain_mcp_adapters.sessions.Path = Path
-
-Ciri.model_rebuild()
