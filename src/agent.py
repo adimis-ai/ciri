@@ -49,8 +49,8 @@ from langchain.agents.middleware.todo import PlanningState
 from deepagents.middleware.filesystem import FilesystemState
 
 
+from .middlewares import TeamRuntimeMiddleware
 from .toolkit import (
-    TeamRuntimeMiddleware,
     build_web_surfer_tool,
     build_web_crawler_tool,
     follow_up_with_human,
