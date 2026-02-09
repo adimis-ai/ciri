@@ -467,6 +467,45 @@ def render_human_message(message) -> None:
     console.print(f"\n[bold green]You:[/bold green] {content}")
 
 
+async def render_thread_history(graph, config: dict) -> None:
+    """Load and display chat history for the current thread."""
+    state = await graph.aget_state(config)
+    if not state or not state.values:
+        console.print("[dim]No history in this thread.[/dim]")
+        return
+
+    messages = state.values.get("messages", [])
+    if not messages:
+        console.print("[dim]No messages in this thread.[/dim]")
+        return
+
+    console.print(
+        Panel(
+            f"[bold]Thread History[/bold] — {len(messages)} message(s)",
+            style="cyan",
+        )
+    )
+
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            console.print(f"\n[bold green]You:[/bold green] {content}")
+        elif isinstance(msg, AIMessage):
+            # Render tool calls if present
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    render_tool_call(tc)
+            # Render text content
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            if content.strip():
+                console.print(f"\n[bold blue]Assistant:[/bold blue]")
+                console.print(Markdown(content))
+        elif isinstance(msg, ToolMessage):
+            render_tool_message(msg)
+
+    console.print()  # spacing after history
+
+
 # ---------------------------------------------------------------------------
 # Human-in-the-Loop Interrupt Handling & Rendering
 # ---------------------------------------------------------------------------
@@ -1075,6 +1114,7 @@ async def interactive_chat():
                             current_thread_id = new_id
                             config = {"configurable": {"thread_id": current_thread_id}}
                             is_first_message = False
+                            await render_thread_history(graph, config)
                         continue
 
                     if stripped == "/new-thread":
