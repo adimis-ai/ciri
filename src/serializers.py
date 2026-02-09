@@ -1,5 +1,6 @@
 import json
 import logging
+import pickle
 from typing import Any, Dict, List, Optional, Union, Sequence, Callable, Literal
 from datetime import datetime, date
 from pathlib import Path
@@ -23,45 +24,57 @@ logger = logging.getLogger(__name__)
 
 
 class CiriJsonPlusSerializer(JsonPlusSerializer):
-    """Extended JsonPlusSerializer that can handle LangGraph Send objects."""
+    """Extended JsonPlusSerializer that handles non-serializable types gracefully.
 
-    def _encode_constructor_args(self, constructor, args):
-        """Override to handle Send objects specifically."""
-        # Handle Send objects
-        if (
-            hasattr(constructor, "__module__")
-            and hasattr(constructor, "__name__")
-            and constructor.__module__ == "langgraph.types"
-            and constructor.__name__ == "Send"
-        ):
-            # Send objects have node and arg attributes
-            if len(args) >= 2:
-                node, arg = args[0], args[1]
-                return (node, self._serialize_value(arg))
-            return args
+    Overrides dumps_typed to catch pickle errors (e.g. _thread.lock objects)
+    that occur when the state contains threading primitives or other
+    unpickleable objects from middleware/tools.
+    """
 
-        # Fall back to parent implementation
-        return super()._encode_constructor_args(constructor, args)
+    def __init__(self, **kwargs):
+        super().__init__(pickle_fallback=True, **kwargs)
 
-    def _serialize_value(self, value: Any) -> Any:
-        """Helper method to recursively serialize values, handling Send objects."""
-        if value is None:
+    def dumps_typed(self, obj):
+        try:
+            return super().dumps_typed(obj)
+        except (TypeError, pickle.PicklingError) as e:
+            logger.warning(
+                "Pickle fallback failed for %s: %s — retrying after cleanup",
+                type(obj).__name__, e,
+            )
+            cleaned = self._strip_unpickleable(obj)
+            # Retry with cleaned object (pickle_fallback still active)
+            return super().dumps_typed(cleaned)
+
+    @staticmethod
+    def _strip_unpickleable(obj, _seen=None):
+        """Recursively replace unpickleable values with their string repr."""
+        if _seen is None:
+            _seen = set()
+        obj_id = id(obj)
+        if obj_id in _seen:
             return None
-        elif isinstance(value, (str, int, float, bool, bytes)):
-            return value
-        elif hasattr(value, "__class__") and value.__class__.__name__ == "Send":
-            # Convert Send object to a serializable form
+        _seen.add(obj_id)
+
+        if obj is None or isinstance(obj, (str, int, float, bool, bytes)):
+            return obj
+        elif isinstance(obj, dict):
             return {
-                "_type": "Send",
-                "node": getattr(value, "node", None),
-                "arg": self._serialize_value(getattr(value, "arg", None)),
+                k: CiriJsonPlusSerializer._strip_unpickleable(v, _seen)
+                for k, v in obj.items()
             }
-        elif isinstance(value, dict):
-            return {k: self._serialize_value(v) for k, v in value.items()}
-        elif isinstance(value, (list, tuple)):
-            return [self._serialize_value(item) for item in value]
+        elif isinstance(obj, (list, tuple)):
+            items = [
+                CiriJsonPlusSerializer._strip_unpickleable(i, _seen)
+                for i in obj
+            ]
+            return tuple(items) if isinstance(obj, tuple) else items
         else:
-            return value
+            try:
+                pickle.dumps(obj)
+                return obj
+            except (TypeError, pickle.PicklingError):
+                return str(obj)
 
 
 class CiriSerializer:

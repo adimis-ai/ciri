@@ -31,10 +31,12 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langgraph.types import Command
+import aiosqlite
 
 # Local imports
 from .agent import Ciri, LLMConfig, ResumeCommand
 from .db import CiriDatabase
+from .serializers import CiriJsonPlusSerializer
 from .utils import get_default_filesystem_root
 
 console = Console()
@@ -397,7 +399,23 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
     """Run the graph with dual stream mode and handle output + interrupts."""
     current_ai_message = ""
     prefix_printed = False
-    seen_tool_call_ids: set[str] = set()
+    # Accumulate tool calls: {id: {name, args_str}} from tool_call_chunks
+    pending_tool_calls: dict[str, dict[str, str]] = {}
+    rendered_tool_call_ids: set[str] = set()
+
+    def _flush_pending_tool_calls():
+        """Render any accumulated tool calls that are complete."""
+        for tc_id, tc_data in list(pending_tool_calls.items()):
+            if tc_id in rendered_tool_call_ids:
+                continue
+            # Parse accumulated args string into dict
+            args_str = tc_data.get("args_str", "")
+            try:
+                args = json.loads(args_str) if args_str else {}
+            except json.JSONDecodeError:
+                args = {}
+            render_tool_call({"name": tc_data["name"], "args": args})
+            rendered_tool_call_ids.add(tc_id)
 
     with console.status("[bold blue]Thinking...", spinner="dots") as status:
         async for stream_type, chunk in graph.astream(
@@ -410,6 +428,11 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
                 # AI message chunks (streaming tokens)
                 if isinstance(message, BaseMessageChunk):
                     if message.content:
+                        # Flush any pending tool calls before printing text
+                        if pending_tool_calls:
+                            status.stop()
+                            _flush_pending_tool_calls()
+
                         status.stop()
                         if not prefix_printed:
                             console.print("\n[bold cyan]CIRI:[/bold cyan] ", end="")
@@ -429,21 +452,26 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
                                     console.print(text, end="")
                                     current_ai_message += text
 
-                    # Tool calls in the AI message chunk
-                    if hasattr(message, "tool_calls") and message.tool_calls:
-                        for tool_call in message.tool_calls:
-                            tc_id = tool_call.get("id")
-                            if (
-                                tc_id
-                                and tc_id not in seen_tool_call_ids
-                                and tool_call.get("name")
-                            ):
-                                status.stop()
-                                render_tool_call(tool_call)
-                                seen_tool_call_ids.add(tc_id)
+                    # Accumulate tool call chunks incrementally
+                    if hasattr(message, "tool_call_chunks") and message.tool_call_chunks:
+                        for tc_chunk in message.tool_call_chunks:
+                            tc_id = tc_chunk.get("id")
+                            tc_name = tc_chunk.get("name")
+                            tc_args = tc_chunk.get("args", "")
+                            if tc_id:
+                                if tc_id not in pending_tool_calls:
+                                    pending_tool_calls[tc_id] = {"name": tc_name or "", "args_str": ""}
+                                if tc_name and not pending_tool_calls[tc_id]["name"]:
+                                    pending_tool_calls[tc_id]["name"] = tc_name
+                                if tc_args:
+                                    pending_tool_calls[tc_id]["args_str"] += tc_args
 
                 # Complete Tool response messages
                 elif isinstance(message, ToolMessage):
+                    # Flush pending tool calls before showing tool response
+                    if pending_tool_calls:
+                        status.stop()
+                        _flush_pending_tool_calls()
                     status.stop()
                     render_tool_message(message)
                     status.start()
@@ -462,6 +490,9 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
                         if node_name == "__interrupt__":
                             # Interrupt arrived via updates — will be handled after loop
                             pass
+
+    # Flush any remaining pending tool calls at end of stream
+    _flush_pending_tool_calls()
 
     if current_ai_message:
         console.print()  # newline after streamed response
@@ -596,7 +627,8 @@ async def interactive_chat():
     llm_config = LLMConfig(model=model)
     ciri_app = Ciri(llm_config=llm_config)
 
-    async with AsyncSqliteSaver.from_conn_string(db.db_path) as checkpointer:
+    async with aiosqlite.connect(db.db_path) as conn:
+        checkpointer = AsyncSqliteSaver(conn, serde=CiriJsonPlusSerializer())
         # Compile the agent graph
         graph = ciri_app.compile(checkpointer=checkpointer)
 
