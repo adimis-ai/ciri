@@ -13,6 +13,7 @@ from browser_use import Browser
 from functools import cached_property
 from langchain.agents import AgentState
 from langgraph.types import Checkpointer
+from langgraph.errors import GraphInterrupt
 from langchain_core.tools import BaseTool
 from langgraph.store.base import BaseStore
 from langgraph.cache.base import BaseCache
@@ -1005,7 +1006,7 @@ class Ciri(BaseModel):
             [
                 ToolRetryMiddleware(
                     max_retries=2,           # 2 retries after initial attempt
-                    retry_on=(Exception,),   # Retry on all exceptions
+                    retry_on=lambda exc: not isinstance(exc, GraphInterrupt),  # Retry all except graph interrupts
                     on_failure="continue",   # Return error message to LLM on final failure
                     backoff_factor=2.0,      # Exponential backoff multiplier
                     initial_delay=1.0,       # 1 second initial delay

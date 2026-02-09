@@ -3,6 +3,7 @@ import json
 import asyncio
 import sys
 import uuid
+import subprocess
 from pathlib import Path
 from typing import Optional, List, Any, Dict, Union, Iterable
 import httpx
@@ -42,6 +43,40 @@ from .utils import get_default_filesystem_root, get_app_data_dir
 from dotenv import set_key
 
 console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Startup Initialization
+# ---------------------------------------------------------------------------
+
+
+def ensure_playwright_installed() -> None:
+    """Ensure Playwright browsers are installed for web crawling."""
+    try:
+        result = subprocess.run(
+            ["playwright", "install", "chromium"],
+            capture_output=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            console.print(
+                "[yellow]Warning: Playwright chromium installation failed. "
+                "Web crawling may not work properly.[/yellow]"
+            )
+    except FileNotFoundError:
+        console.print(
+            "[yellow]Warning: Playwright CLI not found. "
+            "Web crawling may not work properly.[/yellow]"
+        )
+    except subprocess.TimeoutExpired:
+        console.print(
+            "[yellow]Warning: Playwright installation timed out. "
+            "Web crawling may not work properly.[/yellow]"
+        )
+    except Exception as e:
+        console.print(
+            f"[yellow]Warning: Failed to ensure Playwright browsers: {e}[/yellow]"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -635,6 +670,9 @@ async def interactive_chat():
             border_style="cyan",
         )
     )
+
+    # Ensure Playwright is installed for web crawling
+    ensure_playwright_installed()
 
     # Ensure required environment variables are set
     if not os.getenv("OPENROUTER_API_KEY"):
