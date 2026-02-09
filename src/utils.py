@@ -1,4 +1,6 @@
 import os
+import sys
+import shutil
 import asyncio
 import platform
 from pathlib import Path
@@ -71,7 +73,37 @@ def load_all_dotenv():
 #         logger.error(f"Failed to install embedding model: {e}")
 
 
+def find_windows_bash() -> tuple[str, ...] | None:
+    """Find a POSIX-compatible bash on Windows (Git Bash or WSL).
+
+    The ShellToolMiddleware session uses POSIX features (printf, $?) so we
+    need a real bash, not cmd.exe or PowerShell.  Returns None on non-Windows
+    (letting the upstream default of /bin/bash take effect).
+    """
+    if sys.platform != "win32":
+        return None
+
+    # 1. Check if bash is directly on PATH (e.g. Git Bash added to PATH)
+    bash_on_path = shutil.which("bash")
+    if bash_on_path:
+        return (bash_on_path,)
+
+    # 2. Check common Git Bash install locations
+    for candidate in (
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+    ):
+        if os.path.isfile(candidate):
+            return (candidate,)
+
+    # 3. Try WSL bash as last resort
+    wsl_path = shutil.which("wsl")
+    if wsl_path:
+        return (wsl_path, "bash")
+
+    return None
+
+
 def get_default_filesystem_root() -> Path:
     """Return the current working directory as the default filesystem root."""
     return Path(os.getcwd()).resolve()
-

@@ -15,6 +15,8 @@ from langchain.agents.middleware import (
     ShellToolMiddleware,
 )
 
+from ..utils import find_windows_bash
+
 
 class HandoffOption(BaseModel):
     member_name: str = Field(..., description="Name of the team member to handoff to")
@@ -78,7 +80,8 @@ class TeamRuntimeMiddleware(AgentMiddleware):
                 env=self.shell_config.get("env", None),
                 execution_policy=self.shell_config.get("execution_policy", None),
                 redaction_rules=self.shell_config.get("redaction_rules", None),
-                shell_command=self.shell_config.get("shell_command", None),
+                shell_command=self.shell_config.get("shell_command", None)
+                or find_windows_bash(),
                 shutdown_commands=self.shell_config.get("shutdown_commands", None),
                 startup_commands=self.shell_config.get("startup_commands", None),
             ),

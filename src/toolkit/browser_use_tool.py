@@ -55,6 +55,7 @@ def build_web_surfer_tool(
         except RuntimeError:
             # If there's already a running event loop, create a new one in a thread
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(asyncio.run, run_browser_task(task))
                 return future.result()

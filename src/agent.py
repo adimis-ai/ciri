@@ -59,7 +59,7 @@ from .toolkit import (
     follow_up_with_human,
     FollowUpInterruptValue,
 )
-from .utils import get_default_filesystem_root, load_all_dotenv
+from .utils import get_default_filesystem_root, load_all_dotenv, find_windows_bash
 
 load_all_dotenv()
 
@@ -549,13 +549,19 @@ class MiddlewareBuilder:
         shell_config: Optional[ShellToolConfig] = None,
     ) -> ShellToolMiddleware:
         """Build shell tool middleware."""
+        shell_command = getattr(shell_config, "shell_command", None)
+        # Default shell_command is /bin/bash which doesn't exist on Windows;
+        # the shell session requires a POSIX shell (uses printf, $?), so find
+        # Git Bash or WSL bash on Windows.
+        if shell_command is None and sys.platform == "win32":
+            shell_command = find_windows_bash()
         return ShellToolMiddleware(
             workspace_root=self.root_dir,
             env=getattr(shell_config, "env", None),
             startup_commands=getattr(shell_config, "startup_commands", None),
             shutdown_commands=getattr(shell_config, "shutdown_commands", None),
             redaction_rules=getattr(shell_config, "redaction_rules", None),
-            shell_command=getattr(shell_config, "shell_command", None),
+            shell_command=shell_command,
         )
 
 
@@ -767,7 +773,7 @@ class Ciri(BaseModel):
     def _detect_system_browser(self) -> Dict[str, Any]:
         """
         Detect the user's installed system browser based on OS.
-        
+
         Returns a dict with:
             - executable_path: Path to the browser executable (or None for bundled)
             - browser_type: For crawl4ai ("chromium", "firefox", "webkit")
@@ -775,7 +781,7 @@ class Ciri(BaseModel):
             - user_data_dir: Path to browser profile directory (optional)
         """
         platform = sys.platform
-        
+
         # Browser detection configs: (executables, crawl4ai_type, browser_use_channel)
         browser_configs = {
             "chrome": {
@@ -788,9 +794,15 @@ class Ciri(BaseModel):
                     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                 ],
                 "win32": [
-                    os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
-                    os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-                    os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+                    os.path.expandvars(
+                        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+                    ),
+                    os.path.expandvars(
+                        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+                    ),
+                    os.path.expandvars(
+                        r"%LocalAppData%\Google\Chrome\Application\chrome.exe"
+                    ),
                 ],
                 "crawl4ai_type": "chromium",
                 "browser_use_channel": "chrome",
@@ -818,7 +830,9 @@ class Ciri(BaseModel):
                 ],
                 "win32": [
                     os.path.expandvars(r"%ProgramFiles%\Mozilla Firefox\firefox.exe"),
-                    os.path.expandvars(r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"),
+                    os.path.expandvars(
+                        r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"
+                    ),
                 ],
                 "crawl4ai_type": "firefox",
                 "browser_use_channel": None,  # browser_use doesn't support Firefox
@@ -832,8 +846,12 @@ class Ciri(BaseModel):
                     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
                 ],
                 "win32": [
-                    os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
-                    os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+                    os.path.expandvars(
+                        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+                    ),
+                    os.path.expandvars(
+                        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+                    ),
                 ],
                 "crawl4ai_type": "chromium",
                 "browser_use_channel": "msedge",
@@ -846,16 +864,16 @@ class Ciri(BaseModel):
                 "browser_use_channel": None,  # browser_use doesn't support Safari
             },
         }
-        
+
         # Priority order: Chrome > Edge > Chromium > Firefox > Safari
         priority = ["chrome", "edge", "chromium", "firefox"]
         if platform == "darwin":
             priority.append("safari")
-        
+
         for browser_name in priority:
             config = browser_configs.get(browser_name, {})
             paths = config.get(platform, [])
-            
+
             for path in paths:
                 if os.path.isfile(path):
                     return {
@@ -864,9 +882,11 @@ class Ciri(BaseModel):
                         "channel": config["browser_use_channel"],
                         "browser_name": browser_name,
                     }
-            
+
             # Also check via shutil.which for PATH-based detection
-            which_result = shutil.which(browser_name) or shutil.which(f"{browser_name}-browser")
+            which_result = shutil.which(browser_name) or shutil.which(
+                f"{browser_name}-browser"
+            )
             if which_result:
                 return {
                     "executable_path": which_result,
@@ -874,7 +894,7 @@ class Ciri(BaseModel):
                     "channel": config.get("browser_use_channel", "chromium"),
                     "browser_name": browser_name,
                 }
-        
+
         # Fallback to bundled Chromium (Playwright will download if needed)
         return {
             "executable_path": None,
@@ -886,13 +906,13 @@ class Ciri(BaseModel):
     def _initialize_browsers(self) -> tuple[Optional[Browser], Optional[BrowserConfig]]:
         """
         Initialize browser configurations with auto-detection of system browser.
-        
+
         If no explicit browser config is provided, automatically detects the user's
         installed browser to avoid bot detection (uses real browser profile/fingerprint).
         """
         # Detect system browser for auto-configuration
         detected = self._detect_system_browser()
-        
+
         # Initialize web surfer browser (browser_use - Chromium only)
         surfer_browser = None
         if self.web_surfer_browser_config:
@@ -910,7 +930,7 @@ class Ciri(BaseModel):
             # Detected browser not supported by browser_use (Firefox/Safari)
             # Fall back to bundled Chromium
             surfer_browser = Browser()
-        
+
         # Initialize crawler browser (crawl4ai - supports chromium/firefox/webkit)
         crawler_browser = None
         if self.crawler_browser_config:
@@ -924,7 +944,7 @@ class Ciri(BaseModel):
                 browser_type=detected["browser_type"],
                 channel=detected["channel"] or "chromium",
             )
-        
+
         return surfer_browser, crawler_browser
 
     def _compile_subagents(
@@ -1005,13 +1025,15 @@ class Ciri(BaseModel):
         middleware_stack.extend(
             [
                 ToolRetryMiddleware(
-                    max_retries=2,           # 2 retries after initial attempt
-                    retry_on=lambda exc: not isinstance(exc, GraphInterrupt),  # Retry all except graph interrupts
-                    on_failure="continue",   # Return error message to LLM on final failure
-                    backoff_factor=2.0,      # Exponential backoff multiplier
-                    initial_delay=1.0,       # 1 second initial delay
-                    max_delay=10.0,          # Cap at 10 seconds
-                    jitter=True,             # Add ±25% jitter
+                    max_retries=2,  # 2 retries after initial attempt
+                    retry_on=lambda exc: not isinstance(
+                        exc, GraphInterrupt
+                    ),  # Retry all except graph interrupts
+                    on_failure="continue",  # Return error message to LLM on final failure
+                    backoff_factor=2.0,  # Exponential backoff multiplier
+                    initial_delay=1.0,  # 1 second initial delay
+                    max_delay=10.0,  # Cap at 10 seconds
+                    jitter=True,  # Add ±25% jitter
                 ),
                 middleware_builder.build_shell_tool_middleware(self.shell_tool_config),
             ]

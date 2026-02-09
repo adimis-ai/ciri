@@ -16,7 +16,8 @@ from langchain.agents.middleware import (
     SummarizationMiddleware,
     ShellToolMiddleware,
 )
-from src.toolkit.web_crawler_tool import build_web_crawler_tool
+from ..utils import find_windows_bash
+from ..toolkit.web_crawler_tool import build_web_crawler_tool
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,8 @@ class SkillGeneratorMiddleware(AgentMiddleware):
                 env=self.shell_config.get("env", None),
                 execution_policy=self.shell_config.get("execution_policy", None),
                 redaction_rules=self.shell_config.get("redaction_rules", None),
-                shell_command=self.shell_config.get("shell_command", None),
+                shell_command=self.shell_config.get("shell_command", None)
+                or find_windows_bash(),
                 shutdown_commands=self.shell_config.get("shutdown_commands", None),
                 startup_commands=self.shell_config.get("startup_commands", None),
             ),

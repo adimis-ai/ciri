@@ -203,7 +203,9 @@ class ModelCompleter(Completer):
     def __init__(self, models: List[str]):
         self.models = models
 
-    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+    def get_completions(
+        self, document: Document, complete_event
+    ) -> Iterable[Completion]:
         text = document.text_before_cursor.lstrip()
         for model in self.models:
             if model.startswith(text):
@@ -215,10 +217,10 @@ async def fetch_openrouter_models() -> List[str]:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         return []
-    
+
     url = "https://openrouter.ai/api/v1/models"
     headers = {"Authorization": f"Bearer {api_key}"}
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, timeout=10.0)
@@ -227,11 +229,13 @@ async def fetch_openrouter_models() -> List[str]:
                 return [m["id"] for m in data.get("data", [])]
     except Exception as e:
         console.print(f"[dim red]Failed to fetch OpenRouter models: {e}[/dim red]")
-    
+
     return []
 
 
-def get_user_input(completer: Completer, prompt_text: str = "You> ", default_val: str = "") -> str:
+def get_user_input(
+    completer: Completer, prompt_text: str = "You> ", default_val: str = ""
+) -> str:
     """Get user input with autocomplete via prompt_toolkit."""
     try:
         return pt_prompt(
@@ -288,14 +292,18 @@ def render_human_message(message) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _render_action_request(action_req: dict, action_num: int, show_description: bool = True) -> None:
+def _render_action_request(
+    action_req: dict, action_num: int, show_description: bool = True
+) -> None:
     """Beautifully render an action request from HumanInTheLoopMiddleware."""
     name = action_req.get("name", "unknown")
     args = action_req.get("args", {})
     description = action_req.get("description", "")
 
     # Header with action number and name
-    console.print(f"\n  [bold cyan]⚙️  Action {action_num}:[/bold cyan] [bold]{name}[/bold]")
+    console.print(
+        f"\n  [bold cyan]⚙️  Action {action_num}:[/bold cyan] [bold]{name}[/bold]"
+    )
 
     # Show description if available and requested
     if show_description and description:
@@ -316,7 +324,9 @@ def _render_action_request(action_req: dict, action_num: int, show_description: 
             console.print(f"    {args}")
 
 
-def _render_hitl_interrupt(val: dict, action_requests: list, review_configs: list) -> None:
+def _render_hitl_interrupt(
+    val: dict, action_requests: list, review_configs: list
+) -> None:
     """Beautifully render a HumanInTheLoopMiddleware interrupt (tool approval)."""
     console.print(
         Panel(
@@ -405,12 +415,23 @@ async def handle_interrupts(graph, state, config, completer: CiriCompleter) -> N
             )
             try:
                 interrupt_json = json.dumps(val, indent=2, default=str)
-                console.print(Syntax(interrupt_json, "json", theme="monokai", line_numbers=False, padding=1))
+                console.print(
+                    Syntax(
+                        interrupt_json,
+                        "json",
+                        theme="monokai",
+                        line_numbers=False,
+                        padding=1,
+                    )
+                )
             except (TypeError, ValueError):
                 console.print(f"[dim]{val}[/dim]")
 
             response = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: pt_prompt("\n[cyan]Your response[/cyan]> ", completer=completer)
+                None,
+                lambda: pt_prompt(
+                    "\n[cyan]Your response[/cyan]> ", completer=completer
+                ),
             )
             await run_graph(graph, Command(resume=response), config, completer)
 
@@ -440,13 +461,16 @@ async def _handle_follow_up(
             if 0 <= idx < len(options):
                 response = options[idx]
             else:
-                console.print("[red]Invalid option number. Using your input as-is.[/red]")
+                console.print(
+                    "[red]Invalid option number. Using your input as-is.[/red]"
+                )
                 response = choice
         except ValueError:
             response = choice
     else:
         response = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: pt_prompt("  [cyan]Your response[/cyan]> ", completer=completer)
+            None,
+            lambda: pt_prompt("  [cyan]Your response[/cyan]> ", completer=completer),
         )
 
     await run_graph(graph, Command(resume=response), config, completer)
@@ -520,7 +544,9 @@ async def _handle_tool_approval(
                     new_args = json.loads(new_args_str)
                     console.print(f"    [green]✓ Arguments updated[/green]")
                 except json.JSONDecodeError:
-                    console.print("[red]    ✗ Invalid JSON. Keeping original arguments.[/red]")
+                    console.print(
+                        "[red]    ✗ Invalid JSON. Keeping original arguments.[/red]"
+                    )
                     new_args = args
             else:
                 new_args = args
@@ -605,14 +631,20 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
                                     current_ai_message += text
 
                     # Accumulate tool call chunks incrementally
-                    if hasattr(message, "tool_call_chunks") and message.tool_call_chunks:
+                    if (
+                        hasattr(message, "tool_call_chunks")
+                        and message.tool_call_chunks
+                    ):
                         for tc_chunk in message.tool_call_chunks:
                             tc_id = tc_chunk.get("id")
                             tc_name = tc_chunk.get("name")
                             tc_args = tc_chunk.get("args", "")
                             if tc_id:
                                 if tc_id not in pending_tool_calls:
-                                    pending_tool_calls[tc_id] = {"name": tc_name or "", "args_str": ""}
+                                    pending_tool_calls[tc_id] = {
+                                        "name": tc_name or "",
+                                        "args_str": "",
+                                    }
                                 if tc_name and not pending_tool_calls[tc_id]["name"]:
                                     pending_tool_calls[tc_id]["name"] = tc_name
                                 if tc_args:
@@ -776,7 +808,12 @@ async def interactive_chat():
 
     if not model:
         model = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: get_user_input(model_completer, "Select LLM Model (Tab for options)> ", "openai/gpt-5-mini")
+            None,
+            lambda: get_user_input(
+                model_completer,
+                "Select LLM Model (Tab for options)> ",
+                "openai/gpt-5-mini",
+            ),
         )
         os.environ["CIRI_MODEL"] = model
         console.print(f"[green]Model set to {model} for this session.[/green]")
@@ -865,16 +902,19 @@ async def interactive_chat():
                             new_model = parts[1]
                         else:
                             new_model = await asyncio.get_event_loop().run_in_executor(
-                                None, lambda: get_user_input(model_completer, "New model> ")
+                                None,
+                                lambda: get_user_input(model_completer, "New model> "),
                             )
-                        
+
                         if new_model:
                             os.environ["CIRI_MODEL"] = new_model
                             # Re-initialize agent with new model
                             llm_config = LLMConfig(model=new_model)
                             ciri_app = Ciri(llm_config=llm_config)
                             graph = ciri_app.compile(checkpointer=checkpointer)
-                            console.print(f"[green]Model switched to {new_model}[/green]")
+                            console.print(
+                                f"[green]Model switched to {new_model}[/green]"
+                            )
                         continue
 
                     # --- Normal message ---
