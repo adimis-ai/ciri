@@ -467,6 +467,31 @@ def render_human_message(message) -> None:
     console.print(f"\n[bold green]You:[/bold green] {content}")
 
 
+def _get_msg_type(msg) -> str:
+    """Determine message type from a LangChain message object or dict."""
+    if isinstance(msg, HumanMessage):
+        return "human"
+    elif isinstance(msg, AIMessage):
+        return "ai"
+    elif isinstance(msg, ToolMessage):
+        return "tool"
+    elif isinstance(msg, dict):
+        # Checkpoint may deserialize messages as dicts
+        return msg.get("type", "unknown")
+    return "unknown"
+
+
+def _get_msg_content(msg) -> str:
+    """Extract string content from a message object or dict."""
+    if hasattr(msg, "content"):
+        c = msg.content
+    elif isinstance(msg, dict):
+        c = msg.get("content", "")
+    else:
+        c = str(msg)
+    return c if isinstance(c, str) else str(c)
+
+
 async def render_thread_history(graph, config: dict) -> None:
     """Load and display chat history for the current thread."""
     state = await graph.aget_state(config)
@@ -487,21 +512,39 @@ async def render_thread_history(graph, config: dict) -> None:
     )
 
     for msg in messages:
-        if isinstance(msg, HumanMessage):
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            console.print(f"\n[bold green]You:[/bold green] {content}")
-        elif isinstance(msg, AIMessage):
+        msg_type = _get_msg_type(msg)
+
+        if msg_type == "human":
+            console.print(f"\n[bold green]You:[/bold green] {_get_msg_content(msg)}")
+
+        elif msg_type == "ai":
             # Render tool calls if present
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    render_tool_call(tc)
+            tool_calls = (
+                getattr(msg, "tool_calls", None)
+                or (msg.get("tool_calls") if isinstance(msg, dict) else None)
+                or []
+            )
+            for tc in tool_calls:
+                render_tool_call(tc)
             # Render text content
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            content = _get_msg_content(msg)
             if content.strip():
                 console.print(f"\n[bold blue]Assistant:[/bold blue]")
                 console.print(Markdown(content))
-        elif isinstance(msg, ToolMessage):
-            render_tool_message(msg)
+
+        elif msg_type == "tool":
+            if isinstance(msg, ToolMessage):
+                render_tool_message(msg)
+            else:
+                # dict-based tool message
+                name = msg.get("name", msg.get("tool_call_id", "tool"))
+                content = _get_msg_content(msg)
+                if len(content) > 300:
+                    content = content[:300] + "..."
+                console.print(
+                    f"\n[bold magenta]Tool Response ({name}):[/bold magenta]"
+                )
+                console.print(f"[dim]{content}[/dim]")
 
     console.print()  # spacing after history
 
