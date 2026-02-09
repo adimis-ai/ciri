@@ -2,10 +2,20 @@ import os
 import asyncio
 import platform
 from pathlib import Path
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 from langchain_huggingface import HuggingFaceEmbeddings
 
-load_dotenv()
+def load_all_dotenv():
+    """Load .env from current directory and global app data directory."""
+    # Load from current directory
+    load_dotenv()
+    # Load from global app data directory
+    global_env = get_app_data_dir() / ".env"
+    if global_env.exists():
+        load_dotenv(dotenv_path=global_env, override=False)
+
+
+load_all_dotenv()
 
 
 def initialize_embeddings():

@@ -38,7 +38,8 @@ import aiosqlite
 from .agent import Ciri, LLMConfig, ResumeCommand
 from .db import CiriDatabase
 from .serializers import CiriJsonPlusSerializer
-from .utils import get_default_filesystem_root
+from .utils import get_default_filesystem_root, get_app_data_dir
+from dotenv import set_key
 
 console = Console()
 
@@ -643,7 +644,10 @@ async def interactive_chat():
         )
         if api_key:
             os.environ["OPENROUTER_API_KEY"] = api_key
-            console.print("[green]API Key set for this session.[/green]")
+            # Save to global .env
+            global_env = get_app_data_dir() / ".env"
+            set_key(str(global_env), "OPENROUTER_API_KEY", api_key)
+            console.print("[green]API Key set and saved globally.[/green]")
         else:
             console.print("[red]API Key is required to continue. Exiting.[/red]")
             return

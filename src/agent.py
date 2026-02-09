@@ -56,9 +56,9 @@ from .toolkit import (
     follow_up_with_human,
     FollowUpInterruptValue,
 )
-from .utils import get_default_filesystem_root
+from .utils import get_default_filesystem_root, load_all_dotenv
 
-load_dotenv()
+load_all_dotenv()
 
 # Constants
 CIRI_SYSTEM_PROMPT = """You are CIRI, a female desktop-class personal AI copilot embedded in the user's local environment. You are an autonomous execution agent with tools, persistent memory, filesystem access, and the ability to delegate complex work to subagents.
