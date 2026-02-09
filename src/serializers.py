@@ -25,98 +25,6 @@ logger = logging.getLogger(__name__)
 class CiriJsonPlusSerializer(JsonPlusSerializer):
     """Extended JsonPlusSerializer that can handle LangGraph Send objects."""
 
-    def __init__(
-        self,
-        *,
-        pickle_fallback: bool = False,
-        allowed_json_modules: Sequence[tuple[str, ...]] | Literal[True] | None = None,
-        __unpack_ext_hook__: Callable[[int, bytes], Any] | None = None,
-    ):
-        super().__init__(
-            pickle_fallback=pickle_fallback,
-            allowed_json_modules=allowed_json_modules,
-            __unpack_ext_hook__=__unpack_ext_hook__,
-        )
-
-    def dumps_typed(self, obj: Any) -> tuple[str, bytes]:
-        """Override dumps_typed to handle Send objects before msgpack serialization."""
-        # Convert any Send objects to serializable form first
-        serializable_obj = self._make_serializable(obj)
-        return super().dumps_typed(serializable_obj)
-
-    def _make_serializable(self, obj: Any) -> Any:
-        """Recursively convert Send objects to serializable dictionaries."""
-        if obj is None:
-            return None
-        elif isinstance(obj, (str, int, float, bool)):
-            return obj
-        elif (
-            hasattr(obj, "__class__")
-            and obj.__class__.__name__ == "Send"
-            and hasattr(obj, "node")
-            and hasattr(obj, "arg")
-        ):
-            # Convert Send object to serializable dict
-            return {
-                "__send_object__": True,
-                "node": obj.node,
-                "arg": self._make_serializable(obj.arg),
-            }
-        elif hasattr(obj, "__class__") and obj.__class__.__name__ in [
-            "lock",
-            "_thread.lock",
-            "Lock",
-            "RLock",
-        ]:
-            # Skip thread locks and other thread-related objects
-            return {"__thread_lock__": True, "type": obj.__class__.__name__}
-        elif hasattr(obj, "__class__") and "Session" in obj.__class__.__name__:
-            # Skip session objects that might contain locks
-            return {"__session_object__": True, "type": obj.__class__.__name__}
-        elif isinstance(obj, dict):
-            return {k: self._make_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple)):
-            return [self._make_serializable(item) for item in obj]
-        elif hasattr(obj, "__dict__"):
-            # Handle other objects with __dict__
-            result = {}
-            for k, v in obj.__dict__.items():
-                try:
-                    # Skip attributes that might contain locks or other non-serializable objects
-                    if (
-                        k.lower() in ["lock", "session", "tempdir", "policy"]
-                        or "lock" in k.lower()
-                    ):
-                        result[k] = {"__skipped__": True, "reason": "non-serializable"}
-                    else:
-                        result[k] = self._make_serializable(v)
-                except Exception:
-                    result[k] = {"__skipped__": True, "reason": "serialization_error"}
-            return result
-        elif hasattr(obj, "__slots__"):
-            # Handle objects with __slots__ (like Send)
-            result = {}
-            for slot in obj.__slots__:
-                if hasattr(obj, slot):
-                    try:
-                        result[slot] = self._make_serializable(getattr(obj, slot))
-                    except Exception:
-                        result[slot] = {
-                            "__skipped__": True,
-                            "reason": "serialization_error",
-                        }
-            return result
-        else:
-            # Try to convert to string for non-serializable objects
-            try:
-                # Test if it's JSON serializable
-                import json
-
-                json.dumps(obj)
-                return obj
-            except (TypeError, ValueError):
-                return {"__non_serializable__": str(obj), "type": str(type(obj))}
-
     def _encode_constructor_args(self, constructor, args):
         """Override to handle Send objects specifically."""
         # Handle Send objects
@@ -139,14 +47,14 @@ class CiriJsonPlusSerializer(JsonPlusSerializer):
         """Helper method to recursively serialize values, handling Send objects."""
         if value is None:
             return None
-        elif isinstance(value, (str, int, float, bool)):
+        elif isinstance(value, (str, int, float, bool, bytes)):
             return value
         elif hasattr(value, "__class__") and value.__class__.__name__ == "Send":
             # Convert Send object to a serializable form
             return {
                 "_type": "Send",
-                "node": value.node,
-                "arg": self._serialize_value(value.arg),
+                "node": getattr(value, "node", None),
+                "arg": self._serialize_value(getattr(value, "arg", None)),
             }
         elif isinstance(value, dict):
             return {k: self._serialize_value(v) for k, v in value.items()}
@@ -154,7 +62,6 @@ class CiriJsonPlusSerializer(JsonPlusSerializer):
             return [self._serialize_value(item) for item in value]
         else:
             return value
-
 
 class CiriSerializer:
     """Comprehensive serializer for Ciri types with proper JSON handling."""

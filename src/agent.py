@@ -688,7 +688,7 @@ class SubAgentCompiler:
         middleware = self._build_middleware(
             subagent_config=subagent_config,
             llm_config=llm_config,
-            debug=debug,
+            debug=False,
             cache=cache,
         )
 
@@ -802,7 +802,7 @@ class Ciri(BaseModel):
         return [
             compiler.compile(
                 SerializableSubAgent.model_validate(yaml.safe_load(path.read_text())),
-                debug=debug,
+                debug=False,
                 cache=cache,
             )
             for path in subagent_paths
@@ -887,7 +887,7 @@ class Ciri(BaseModel):
         return create_deep_agent(
             name="ciri",
             store=store,
-            debug=debug,
+            debug=False,
             cache=cache,
             backend=backend,
             memory=memory_paths,
@@ -928,7 +928,7 @@ class Ciri(BaseModel):
             root_dir=root_dir,
             surfer_browser=surfer_browser,
             crawler_browser_config=crawler_browser_config,
-            debug=debug,
+            debug=False,
             cache=cache,
         )
 
@@ -939,7 +939,7 @@ class Ciri(BaseModel):
             surfer_browser=surfer_browser,
             crawler_browser_config=crawler_browser_config,
             compiled_subagents=compiled_subagents,
-            debug=debug,
+            debug=False,
             cache=cache,
             context_schema=context_schema,
             tools=tools,
