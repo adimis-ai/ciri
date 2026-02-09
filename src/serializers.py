@@ -77,6 +77,44 @@ class CiriJsonPlusSerializer(JsonPlusSerializer):
             cleaned = self._strip_unpickleable(obj)
             return super().dumps_typed(cleaned)
 
+    def loads_typed(self, data: tuple[str, bytes]) -> Any:
+        """Deserialize data, reconstructing LangGraph types from dict representations.
+
+        This is called by LangGraph when loading checkpointed state. We need to
+        reconstruct Send objects from their dict serialized form to avoid
+        "Ignoring invalid packet type <class 'dict'> in pending sends" warnings.
+        """
+        result = super().loads_typed(data)
+        return self._reconstruct_langgraph_types(result)
+
+    @classmethod
+    def _reconstruct_langgraph_types(cls, obj: Any) -> Any:
+        """Recursively reconstruct LangGraph types from dict representations."""
+        from langgraph.types import Send
+
+        if obj is None or isinstance(obj, (str, int, float, bool, bytes)):
+            return obj
+
+        # Reconstruct Send objects from dicts with _type: "Send"
+        if isinstance(obj, dict):
+            if obj.get("_type") == "Send" and "node" in obj:
+                node = obj.get("node")
+                arg = cls._reconstruct_langgraph_types(obj.get("arg"))
+                return Send(node=node, arg=arg)
+
+            # Recursively process dict values
+            return {k: cls._reconstruct_langgraph_types(v) for k, v in obj.items()}
+
+        # Recursively process lists
+        if isinstance(obj, list):
+            return [cls._reconstruct_langgraph_types(item) for item in obj]
+
+        # Recursively process tuples
+        if isinstance(obj, tuple):
+            return tuple(cls._reconstruct_langgraph_types(item) for item in obj)
+
+        return obj
+
     @staticmethod
     def _strip_unpickleable(obj, _seen=None):
         """Recursively replace unpickleable values with their string repr.
