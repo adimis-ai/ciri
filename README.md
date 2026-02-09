@@ -423,24 +423,28 @@ If you have multiple Python versions, uv will automatically use the correct one.
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+Please see the [CONTRIBUTING.md](CONTRIBUTING.md) file for more information on how to get started.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE.md](LICENSE.md) for details.
+Distributed under the MIT License. See [LICENSE.md](LICENSE.md) for the full text.
 
 ---
 
 ## Contact
 
-For questions or support, open an issue in this repository.
+**Aditya Mishra** - [@adimis-ai](https://github.com/adimis-ai)
+
+Project Link: [https://github.com/adimis-ai/ciri](https://github.com/adimis-ai/ciri)
 
 ---
 
 <div align="center">
 
-**Built with ❤️ by Aditya Mishra**
+**Built by [Aditya Mishra](https://github.com/adimis-ai)**
 
 </div>
