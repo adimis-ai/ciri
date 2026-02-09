@@ -1,5 +1,7 @@
 from __future__ import annotations
 import os
+import sys
+import shutil
 import asyncio
 import threading
 import yaml
@@ -761,18 +763,167 @@ class Ciri(BaseModel):
         None  # Union[bool, InterruptOnConfig] - Any used for Pydantic compatibility
     )
 
+    def _detect_system_browser(self) -> Dict[str, Any]:
+        """
+        Detect the user's installed system browser based on OS.
+        
+        Returns a dict with:
+            - executable_path: Path to the browser executable (or None for bundled)
+            - browser_type: For crawl4ai ("chromium", "firefox", "webkit")
+            - channel: For browser_use ("chrome", "msedge", "chromium", etc.)
+            - user_data_dir: Path to browser profile directory (optional)
+        """
+        platform = sys.platform
+        
+        # Browser detection configs: (executables, crawl4ai_type, browser_use_channel)
+        browser_configs = {
+            "chrome": {
+                "linux": [
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/google-chrome-stable",
+                    "/opt/google/chrome/google-chrome",
+                ],
+                "darwin": [
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                ],
+                "win32": [
+                    os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+                    os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+                    os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+                ],
+                "crawl4ai_type": "chromium",
+                "browser_use_channel": "chrome",
+            },
+            "chromium": {
+                "linux": [
+                    "/usr/bin/chromium",
+                    "/usr/bin/chromium-browser",
+                    "/snap/bin/chromium",
+                ],
+                "darwin": [
+                    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                ],
+                "win32": [],
+                "crawl4ai_type": "chromium",
+                "browser_use_channel": "chromium",
+            },
+            "firefox": {
+                "linux": [
+                    "/usr/bin/firefox",
+                    "/snap/bin/firefox",
+                ],
+                "darwin": [
+                    "/Applications/Firefox.app/Contents/MacOS/firefox",
+                ],
+                "win32": [
+                    os.path.expandvars(r"%ProgramFiles%\Mozilla Firefox\firefox.exe"),
+                    os.path.expandvars(r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"),
+                ],
+                "crawl4ai_type": "firefox",
+                "browser_use_channel": None,  # browser_use doesn't support Firefox
+            },
+            "edge": {
+                "linux": [
+                    "/usr/bin/microsoft-edge",
+                    "/usr/bin/microsoft-edge-stable",
+                ],
+                "darwin": [
+                    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                ],
+                "win32": [
+                    os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+                    os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+                ],
+                "crawl4ai_type": "chromium",
+                "browser_use_channel": "msedge",
+            },
+            "safari": {
+                "darwin": [
+                    "/Applications/Safari.app/Contents/MacOS/Safari",
+                ],
+                "crawl4ai_type": "webkit",
+                "browser_use_channel": None,  # browser_use doesn't support Safari
+            },
+        }
+        
+        # Priority order: Chrome > Edge > Chromium > Firefox > Safari
+        priority = ["chrome", "edge", "chromium", "firefox"]
+        if platform == "darwin":
+            priority.append("safari")
+        
+        for browser_name in priority:
+            config = browser_configs.get(browser_name, {})
+            paths = config.get(platform, [])
+            
+            for path in paths:
+                if os.path.isfile(path):
+                    return {
+                        "executable_path": path,
+                        "browser_type": config["crawl4ai_type"],
+                        "channel": config["browser_use_channel"],
+                        "browser_name": browser_name,
+                    }
+            
+            # Also check via shutil.which for PATH-based detection
+            which_result = shutil.which(browser_name) or shutil.which(f"{browser_name}-browser")
+            if which_result:
+                return {
+                    "executable_path": which_result,
+                    "browser_type": config.get("crawl4ai_type", "chromium"),
+                    "channel": config.get("browser_use_channel", "chromium"),
+                    "browser_name": browser_name,
+                }
+        
+        # Fallback to bundled Chromium (Playwright will download if needed)
+        return {
+            "executable_path": None,
+            "browser_type": "chromium",
+            "channel": "chromium",
+            "browser_name": "chromium (bundled)",
+        }
+
     def _initialize_browsers(self) -> tuple[Optional[Browser], Optional[BrowserConfig]]:
-        """Initialize browser configurations."""
-        surfer_browser = (
-            Browser(**self.web_surfer_browser_config.model_dump(exclude_none=True))
-            if self.web_surfer_browser_config
-            else None
-        )
-        crawler_browser = (
-            BrowserConfig(**self.crawler_browser_config.model_dump(exclude_none=True))
-            if self.crawler_browser_config
-            else None
-        )
+        """
+        Initialize browser configurations with auto-detection of system browser.
+        
+        If no explicit browser config is provided, automatically detects the user's
+        installed browser to avoid bot detection (uses real browser profile/fingerprint).
+        """
+        # Detect system browser for auto-configuration
+        detected = self._detect_system_browser()
+        
+        # Initialize web surfer browser (browser_use - Chromium only)
+        surfer_browser = None
+        if self.web_surfer_browser_config:
+            # User provided explicit config
+            surfer_browser = Browser(
+                **self.web_surfer_browser_config.model_dump(exclude_none=True)
+            )
+        elif detected["channel"]:
+            # Auto-configure with detected Chromium-based browser
+            surfer_browser = Browser(
+                channel=detected["channel"],
+                executable_path=detected["executable_path"],
+            )
+        else:
+            # Detected browser not supported by browser_use (Firefox/Safari)
+            # Fall back to bundled Chromium
+            surfer_browser = Browser()
+        
+        # Initialize crawler browser (crawl4ai - supports chromium/firefox/webkit)
+        crawler_browser = None
+        if self.crawler_browser_config:
+            # User provided explicit config
+            crawler_browser = BrowserConfig(
+                **self.crawler_browser_config.model_dump(exclude_none=True)
+            )
+        else:
+            # Auto-configure with detected browser
+            crawler_browser = BrowserConfig(
+                browser_type=detected["browser_type"],
+                channel=detected["channel"] or "chromium",
+            )
+        
         return surfer_browser, crawler_browser
 
     def _compile_subagents(
