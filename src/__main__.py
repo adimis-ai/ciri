@@ -284,12 +284,86 @@ def render_human_message(message) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Human-in-the-Loop Interrupt Handling
+# Human-in-the-Loop Interrupt Handling & Rendering
 # ---------------------------------------------------------------------------
 
 
+def _render_action_request(action_req: dict, action_num: int, show_description: bool = True) -> None:
+    """Beautifully render an action request from HumanInTheLoopMiddleware."""
+    name = action_req.get("name", "unknown")
+    args = action_req.get("args", {})
+    description = action_req.get("description", "")
+
+    # Header with action number and name
+    console.print(f"\n  [bold cyan]⚙️  Action {action_num}:[/bold cyan] [bold]{name}[/bold]")
+
+    # Show description if available and requested
+    if show_description and description:
+        console.print(f"  [dim]Description:[/dim]")
+        for line in description.split("\n"):
+            console.print(f"    [dim]{line}[/dim]")
+
+    # Show args as formatted JSON
+    if args:
+        console.print(f"  [dim]Arguments:[/dim]")
+        try:
+            args_str = json.dumps(args, indent=2, default=str)
+            # Indent for nested rendering
+            args_lines = args_str.split("\n")
+            for line in args_lines:
+                console.print(f"    {line}")
+        except (TypeError, ValueError):
+            console.print(f"    {args}")
+
+
+def _render_hitl_interrupt(val: dict, action_requests: list, review_configs: list) -> None:
+    """Beautifully render a HumanInTheLoopMiddleware interrupt (tool approval)."""
+    console.print(
+        Panel(
+            "[bold cyan]🔒 Tool Execution Approval Required[/bold cyan]\n"
+            "[dim]The model wants to execute the following tools. Please review:[/dim]",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
+    # Render each action request
+    for i, req in enumerate(action_requests, 1):
+        _render_action_request(req, i, show_description=True)
+
+    # Show allowed decisions per tool
+    console.print("\n  [dim]Allowed decisions per tool:[/dim]")
+    for req, rc in zip(action_requests, review_configs):
+        tool_name = req.get("name", "unknown")
+        allowed = rc.get("allowed_decisions", [])
+        allowed_str = ", ".join(f"[cyan]{d}[/cyan]" for d in allowed)
+        console.print(f"    • [bold]{tool_name}[/bold]: {allowed_str}")
+
+    console.print()
+
+
+def _render_follow_up_interrupt(val: dict) -> None:
+    """Beautifully render a human_follow_up interrupt."""
+    question = val.get("question", "")
+    options = val.get("options")
+
+    console.print(
+        Panel(
+            f"[bold cyan]❓ Clarification Needed[/bold cyan]\n{question}",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
+    if options:
+        console.print("\n  [dim]Available options:[/dim]")
+        for i, opt in enumerate(options, 1):
+            console.print(f"    [cyan]{i}.[/cyan] {opt}")
+        console.print()
+
+
 async def handle_interrupts(graph, state, config, completer: CiriCompleter) -> None:
-    """Handle all pending interrupts from the graph state."""
+    """Handle all pending interrupts from the graph state with beautiful rendering."""
     snapshot = state.values
     interrupts = snapshot.get("__interrupt__", [])
 
@@ -308,20 +382,35 @@ async def handle_interrupts(graph, state, config, completer: CiriCompleter) -> N
         if not val:
             continue
 
+        # Route to appropriate handler based on interrupt type
         if isinstance(val, dict) and val.get("type") == "human_follow_up":
+            _render_follow_up_interrupt(val)
             await _handle_follow_up(graph, val, config, completer)
+
         elif isinstance(val, dict) and "action_requests" in val:
+            # HumanInTheLoopMiddleware interrupt
+            action_requests = val.get("action_requests", [])
+            review_configs = val.get("review_configs", [])
+            _render_hitl_interrupt(val, action_requests, review_configs)
             await _handle_tool_approval(graph, val, config, completer)
+
         else:
-            # Unknown interrupt type — show raw value and ask for generic response
+            # Unknown interrupt type — show beautifully formatted raw value
             console.print(
                 Panel(
-                    f"[bold yellow]Interrupt:[/bold yellow]\n{json.dumps(val, indent=2, default=str)}",
-                    border_style="yellow",
+                    "[bold cyan]❔ Unknown Interrupt Type[/bold cyan]",
+                    border_style="cyan",
+                    padding=(1, 2),
                 )
             )
+            try:
+                interrupt_json = json.dumps(val, indent=2, default=str)
+                console.print(Syntax(interrupt_json, "json", theme="monokai", line_numbers=False, padding=1))
+            except (TypeError, ValueError):
+                console.print(f"[dim]{val}[/dim]")
+
             response = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: pt_prompt("Your response> ", completer=completer)
+                None, lambda: pt_prompt("\n[cyan]Your response[/cyan]> ", completer=completer)
             )
             await run_graph(graph, Command(resume=response), config, completer)
 
@@ -329,39 +418,35 @@ async def handle_interrupts(graph, state, config, completer: CiriCompleter) -> N
 async def _handle_follow_up(
     graph, val: dict, config: dict, completer: CiriCompleter
 ) -> None:
-    """Handle a human_follow_up interrupt."""
+    """Handle a human_follow_up interrupt with beautiful option rendering."""
     question = val.get("question", "")
     options = val.get("options")
 
-    console.print(
-        Panel(
-            f"[bold yellow]Follow-up Question:[/bold yellow]\n{question}",
-            border_style="yellow",
-        )
-    )
+    # Rendering is done in handle_interrupts via _render_follow_up_interrupt
+    # This handler just collects and processes the response
 
     if options:
-        # Show numbered options
-        for i, opt in enumerate(options, 1):
-            console.print(f"  [cyan]{i}.[/cyan] {opt}")
-        console.print()
-
-        response = await asyncio.get_event_loop().run_in_executor(
+        # Get user choice
+        choice = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: pt_prompt(
-                "Choose an option (number or text)> ", completer=completer
+                "  [cyan]Enter option number or text[/cyan]> ", completer=completer
             ),
         )
+
         # If user typed a number, resolve to the option text
         try:
-            idx = int(response.strip()) - 1
+            idx = int(choice.strip()) - 1
             if 0 <= idx < len(options):
                 response = options[idx]
+            else:
+                console.print("[red]Invalid option number. Using your input as-is.[/red]")
+                response = choice
         except ValueError:
-            pass
+            response = choice
     else:
         response = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: pt_prompt("Your response> ", completer=completer)
+            None, lambda: pt_prompt("  [cyan]Your response[/cyan]> ", completer=completer)
         )
 
     await run_graph(graph, Command(resume=response), config, completer)
@@ -374,41 +459,24 @@ async def _handle_tool_approval(
     action_requests = val.get("action_requests", [])
     review_configs = val.get("review_configs", [])
 
-    console.print(
-        Panel(
-            "[bold yellow]Tool Execution Approval Required[/bold yellow]",
-            border_style="yellow",
-        )
-    )
+    # Rendering is done in handle_interrupts via _render_hitl_interrupt
+    # This handler just collects and processes the decisions
 
-    # Display each action request
-    for i, req in enumerate(action_requests):
-        name = req.get("name", "unknown")
-        args = req.get("arguments", req.get("args", {}))
-        console.print(f"\n  [bold]Action {i + 1}:[/bold] [cyan]{name}[/cyan]")
-        try:
-            args_str = json.dumps(args, indent=2, default=str)
-            console.print(
-                Syntax(args_str, "json", theme="monokai", line_numbers=False, padding=1)
-            )
-        except (TypeError, ValueError):
-            console.print(f"  Arguments: {args}")
+    # Show decision options summary
+    console.print("\n  [dim]Actions available per tool:[/dim]")
+    allowed_per_tool = {}
+    for req, rc in zip(action_requests, review_configs):
+        tool_name = req.get("name", "unknown")
+        allowed = set(rc.get("allowed_decisions", []))
+        allowed_per_tool[tool_name] = allowed
+        allowed_str = " / ".join(f"[cyan]{d}[/cyan]" for d in sorted(allowed))
+        console.print(f"    • [bold]{tool_name}[/bold]: {allowed_str}")
 
-    # Show allowed decisions from review configs if available
-    allowed = {"approve", "reject", "edit"}
-    if review_configs:
-        for rc in review_configs:
-            rc_allowed = set(rc.get("allowed_decisions", []))
-            if rc_allowed:
-                allowed = allowed & rc_allowed
-
-    choices_str = " / ".join(f"[cyan]{c}[/cyan]" for c in sorted(allowed))
-    console.print(f"\nOptions: {choices_str}")
-
+    # Get user decision (same for all or per-tool)
     decision = await asyncio.get_event_loop().run_in_executor(
         None,
         lambda: pt_prompt(
-            "Decision (approve/reject/edit)> ",
+            "\n  [cyan]Decision (approve/reject/edit)[/cyan]> ",
             completer=completer,
         ),
     )
@@ -420,42 +488,54 @@ async def _handle_tool_approval(
 
     elif decision == "reject":
         reason = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: pt_prompt("Reason for rejection> ")
+            None, lambda: pt_prompt("  [cyan]Reason for rejection[/cyan]> ")
         )
         decisions = [{"type": "reject", "message": reason} for _ in action_requests]
         command = Command(resume={"decisions": decisions})
 
     elif decision == "edit":
+        console.print("\n  [bold cyan]✏️  Editing Actions[/bold cyan]")
         decisions = []
-        for req in action_requests:
+        for i, req in enumerate(action_requests, 1):
             name = req.get("name", "unknown")
             args = req.get("arguments", req.get("args", {}))
-            console.print(f"\n[bold]Editing action:[/bold] [cyan]{name}[/cyan]")
-            console.print(f"Current args: {json.dumps(args, indent=2, default=str)}")
+
+            console.print(f"\n    [bold]Action {i}: {name}[/bold]")
+            console.print(f"    [dim]Current arguments:[/dim]")
+            try:
+                args_str = json.dumps(args, indent=2, default=str)
+                for line in args_str.split("\n"):
+                    console.print(f"      {line}")
+            except (TypeError, ValueError):
+                console.print(f"      {args}")
+
             new_args_str = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: pt_prompt("New args (JSON, or press Enter to keep current)> "),
+                lambda: pt_prompt(
+                    "    [cyan]New arguments (JSON, or press Enter to keep)[/cyan]> "
+                ),
             )
             if new_args_str.strip():
                 try:
                     new_args = json.loads(new_args_str)
+                    console.print(f"    [green]✓ Arguments updated[/green]")
                 except json.JSONDecodeError:
-                    console.print("[red]Invalid JSON. Keeping original args.[/red]")
+                    console.print("[red]    ✗ Invalid JSON. Keeping original arguments.[/red]")
                     new_args = args
             else:
                 new_args = args
+
             decisions.append(
                 {
                     "type": "edit",
                     "edited_action": {"name": name, "args": new_args},
                 }
             )
+
         command = Command(resume={"decisions": decisions})
 
     else:
-        console.print(
-            f"[red]Unknown decision '{decision}'. Defaulting to approve.[/red]"
-        )
+        console.print(f"  [red]Unknown decision '{decision}'. Using 'approve'.[/red]")
         decisions = [{"type": "approve"} for _ in action_requests]
         command = Command(resume={"decisions": decisions})
 
