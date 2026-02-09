@@ -125,8 +125,8 @@ def _setup_browser_profile() -> Optional[WebSurferBrowserConfig]:
                     cross_origin_iframes=False,  # Disable cross-origin iframes which cause frame lookup failures
                     max_iframes=5,  # Limit iframe processing (default is 100)
                     max_iframe_depth=2,  # Reduce iframe traversal depth
-                    minimum_wait_page_load_time=1.0,  # Give pages more time to settle
-                    wait_for_network_idle_page_load_time=2.0,  # Wait longer for network idle
+                    minimum_wait_page_load_time=5.0,  # Give pages more time to settle
+                    wait_for_network_idle_page_load_time=60.0,  # Wait longer for network idle
                     # Performance args to disable extensions and speed up automation
                     args=[
                         "--disable-extensions",
