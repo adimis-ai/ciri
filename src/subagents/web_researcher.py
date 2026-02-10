@@ -12,7 +12,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
 from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
 from langchain_community.tools import DuckDuckGoSearchResults
-from langchain_community.tools.playwright.utils import run_async
+from asgiref.sync import async_to_sync
 from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import (
     TodoListMiddleware,
@@ -196,12 +196,10 @@ class PlaywrightBrowserInit:
         if self._browser is None:
             from playwright.async_api import async_playwright
 
-            self._pw = run_async(async_playwright().start())
-            self._browser = run_async(
-                self._pw.chromium.launch_persistent_context(
-                    self.profile_path, **self.launch_kwargs
-                )
-            ).browser
+            self._pw = async_to_sync(async_playwright().start)()
+            self._browser = async_to_sync(
+                self._pw.chromium.launch_persistent_context
+            )(self.profile_path, **self.launch_kwargs).browser
         return self._browser
 
 

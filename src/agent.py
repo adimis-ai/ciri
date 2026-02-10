@@ -5,6 +5,7 @@ import shutil
 import asyncio
 import threading
 import yaml
+from asgiref.sync import async_to_sync
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -78,27 +79,7 @@ DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Utility Functions
 def _run_coroutine_sync(coro):
     """Run an async coroutine from a sync context, even if an event loop is already running."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    result = None
-    exception = None
-
-    def _target():
-        nonlocal result, exception
-        try:
-            result = asyncio.run(coro)
-        except BaseException as exc:
-            exception = exc
-
-    thread = threading.Thread(target=_target)
-    thread.start()
-    thread.join()
-    if exception is not None:
-        raise exception
-    return result
+    return async_to_sync(lambda: coro)()
 
 
 # Configuration Models
@@ -338,7 +319,7 @@ class MCPClientManager:
             return []
 
         mcp_client = MultiServerMCPClient(connections=connections)
-        return _run_coroutine_sync(mcp_client.get_tools())
+        return async_to_sync(mcp_client.get_tools)()
 
     @staticmethod
     def merge_connections(
