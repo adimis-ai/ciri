@@ -2,21 +2,29 @@ import logging
 import os
 import platform
 import shutil
+import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, List, TypeVar, Coroutine, Any
 
 from deepagents import CompiledSubAgent
 from langchain.agents import create_agent
-from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
+from langchain_core.language_models import BaseChatModel
+from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
 from langchain_community.tools import DuckDuckGoSearchResults
-
+from langchain_community.tools.playwright.utils import run_async
 from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import (
     TodoListMiddleware,
     ToolRetryMiddleware,
     SummarizationMiddleware,
 )
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser as AsyncBrowser
+    from playwright.async_api import Page as AsyncPage
+    from playwright.sync_api import Browser as SyncBrowser
+    from playwright.sync_api import Page as SyncPage
 
 from ..toolkit.web_crawler_tool import (
     build_web_crawler_tool,
@@ -105,11 +113,6 @@ def _get_chrome_channel() -> Optional[str]:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Browser profile resolution
-# ---------------------------------------------------------------------------
-
-
 def _resolve_browser_profile(
     browser_name: Optional[str] = None,
     profile_directory: Optional[str] = None,
@@ -169,190 +172,65 @@ def _resolve_browser_profile(
 
 
 # ---------------------------------------------------------------------------
-# Playwright persistent-context adapters
-#
-# PlayWrightBrowserToolkit expects a Browser object (with a .contexts list).
-# Playwright's launch_persistent_context() returns a BrowserContext directly.
-# These lightweight adapters bridge the gap so the toolkit works unchanged.
+# Playwright tools resolution
 # ---------------------------------------------------------------------------
 
+class PlaywrightBrowserInit:
+    def __init__(self, profile_path: str, launch_kwargs: dict):
+        self.profile_path = profile_path
+        self.launch_kwargs = launch_kwargs
 
-class _AsyncBrowserContextAdapter:
-    """Make an async ``BrowserContext`` quack like an async ``Browser``."""
+    def get_sync_browser(self) -> "SyncBrowser":
+        from playwright.sync_api import sync_playwright
 
-    def __init__(self, context):  # noqa: ANN001
-        self._context = context
+        pw = sync_playwright().start()
+        context = pw.chromium.launch_persistent_context(
+            self.profile_path, **self.launch_kwargs
+        )
+        return context.browser
 
-    @property
-    def contexts(self):  # noqa: ANN201
-        return [self._context]
+    async def get_async_browser(self) -> "AsyncBrowser":
+        from playwright.async_api import async_playwright
 
-    async def close(self) -> None:
-        await self._context.close()
-
-
-class _SyncBrowserContextAdapter:
-    """Make a sync ``BrowserContext`` quack like a sync ``Browser``."""
-
-    def __init__(self, context):  # noqa: ANN001
-        self._context = context
-
-    @property
-    def contexts(self):  # noqa: ANN201
-        return [self._context]
-
-    def close(self) -> None:
-        self._context.close()
-
-
-# ---------------------------------------------------------------------------
-# Playwright browser launchers (persistent context)
-# ---------------------------------------------------------------------------
-
-
-async def _launch_persistent_async_browser(
-    user_data_dir: Path,
-    profile_directory: str = "Default",
-    headless: bool = False,
-    channel: Optional[str] = None,
-) -> tuple:
-    """Launch an async Playwright browser with a persistent context.
-
-    Using ``launch_persistent_context`` keeps cookies, localStorage, and
-    session data across runs — critical for staying logged-in on sites like
-    LinkedIn and Twitter without triggering bot detection.
-
-    Returns:
-        ``(adapter, playwright_instance)`` so the caller can tear down later.
-    """
-    from playwright.async_api import async_playwright
-
-    pw = await async_playwright().start()
-
-    # Persistent context user_data_dir = the actual profile sub-folder
-    profile_path = str(user_data_dir / profile_directory)
-
-    launch_kwargs: dict = {
-        "user_data_dir": profile_path,
-        "headless": headless,
-        "args": list(_STEALTH_ARGS),
-        "ignore_https_errors": True,
-        "viewport": {"width": 1920, "height": 1080},
-    }
-    if channel:
-        launch_kwargs["channel"] = channel
-
-    context = await pw.chromium.launch_persistent_context(**launch_kwargs)
-    return _AsyncBrowserContextAdapter(context), pw
-
-
-def _launch_persistent_sync_browser(
-    user_data_dir: Path,
-    profile_directory: str = "Default",
-    headless: bool = False,
-    channel: Optional[str] = None,
-) -> tuple:
-    """Sync variant of :func:`_launch_persistent_async_browser`."""
-    from playwright.sync_api import sync_playwright
-
-    pw = sync_playwright().start()
-    profile_path = str(user_data_dir / profile_directory)
-
-    launch_kwargs: dict = {
-        "user_data_dir": profile_path,
-        "headless": headless,
-        "args": list(_STEALTH_ARGS),
-        "ignore_https_errors": True,
-        "viewport": {"width": 1920, "height": 1080},
-    }
-    if channel:
-        launch_kwargs["channel"] = channel
-
-    context = pw.chromium.launch_persistent_context(**launch_kwargs)
-    return _SyncBrowserContextAdapter(context), pw
-
-
-# ---------------------------------------------------------------------------
-# Playwright tools builder
-# ---------------------------------------------------------------------------
-
-
-def _build_tools_from_browser(async_browser) -> list[BaseTool]:  # noqa: ANN001
-    """Build Playwright tools from an async browser or adapter.
-
-    Uses ``model_construct`` to bypass pydantic ``isinstance`` validation so
-    that our ``_AsyncBrowserContextAdapter`` (or a real ``Browser``) can be
-    used interchangeably.
-    """
-    from langchain_community.tools.playwright.click import ClickTool
-    from langchain_community.tools.playwright.current_page import CurrentWebPageTool
-    from langchain_community.tools.playwright.extract_hyperlinks import (
-        ExtractHyperlinksTool,
-    )
-    from langchain_community.tools.playwright.extract_text import ExtractTextTool
-    from langchain_community.tools.playwright.get_elements import GetElementsTool
-    from langchain_community.tools.playwright.navigate import NavigateTool
-    from langchain_community.tools.playwright.navigate_back import NavigateBackTool
-
-    tool_classes = [
-        ClickTool,
-        NavigateTool,
-        NavigateBackTool,
-        ExtractTextTool,
-        ExtractHyperlinksTool,
-        GetElementsTool,
-        CurrentWebPageTool,
-    ]
-    return [
-        cls.model_construct(async_browser=async_browser, sync_browser=None)
-        for cls in tool_classes
-    ]
+        pw = await async_playwright().start()
+        context = await pw.chromium.launch_persistent_context(
+            self.profile_path, **self.launch_kwargs
+        )
+        return context.browser
 
 
 async def get_playwright_tools(
-    profile_info: Optional[dict] = None,
-    headless: Optional[bool] = None,
+    user_data_dir: Optional[Path] = None,
+    profile_directory: str = "Default",
+    headless: bool = False,
     channel: Optional[str] = None,
-) -> list[BaseTool]:
-    """Create Playwright browser tools, preferring a persistent context with
-    the user's real browser profile for anti-detection.
+):
+    # Persistent context user_data_dir = the actual profile sub-folder
+    if user_data_dir:
+        profile_path = str(user_data_dir / profile_directory)
+    else:
+        # Fallback to a temporary directory if no profile is provided
+        # This keeps the "launch_persistent_context" logic unified
+        temp_dir = tempfile.mkdtemp(prefix="ciri_playwright_")
+        profile_path = str(Path(temp_dir) / profile_directory)
+        logger.info("No browser profile provided; using temporary directory: %s", temp_dir)
 
-    Falls back to a plain Chromium launch (with stealth args) when no profile
-    is available or persistent-context launch fails.
-    """
-    if headless is None:
-        headless = not _has_display()
-        if headless:
-            logger.info("No display server detected — running Playwright headless")
+    launch_kwargs: dict = {
+        "headless": headless,
+        "args": list(_STEALTH_ARGS),
+        "ignore_https_errors": True,
+        "viewport": {"width": 1920, "height": 1080},
+    }
+    if channel:
+        launch_kwargs["channel"] = channel
 
-    if channel is None:
-        channel = _get_chrome_channel()
+    browser_initializer = PlaywrightBrowserInit(profile_path, launch_kwargs)
 
-    # --- attempt persistent-context launch with real profile ---
-    if profile_info:
-        try:
-            adapter, _pw = await _launch_persistent_async_browser(
-                user_data_dir=profile_info["user_data_dir"],
-                profile_directory=profile_info["profile_directory"],
-                headless=headless,
-                channel=channel,
-            )
-            return _build_tools_from_browser(adapter)
-        except Exception:
-            logger.warning(
-                "Failed to launch persistent browser context — "
-                "falling back to default Chromium",
-                exc_info=True,
-            )
-
-    # --- fallback: plain launch with stealth args ---
-    from playwright.async_api import async_playwright
-
-    pw = await async_playwright().start()
-    browser = await pw.chromium.launch(
-        headless=headless, args=list(_STEALTH_ARGS)
+    adapter = PlayWrightBrowserToolkit.from_browser(
+        sync_browser=None,
+        async_browser=await browser_initializer.get_async_browser(),
     )
-    return _build_tools_from_browser(browser)
+    return adapter.get_tools()
 
 
 # ---------------------------------------------------------------------------
@@ -703,7 +581,8 @@ async def build_web_researcher_agent(
 
     # --- Playwright interactive tools ---
     tools: list[BaseTool] = await get_playwright_tools(
-        profile_info=profile_info,
+        user_data_dir=profile_info["user_data_dir"] if profile_info else None,
+        profile_directory=profile_info["profile_directory"] if profile_info else None,
         headless=effective_headless,
         channel=channel,
     )
