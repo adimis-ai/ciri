@@ -254,19 +254,20 @@ async def get_playwright_tools(
 ):
     print(f"[get_playwright_tools] Initializing Playwright browser toolkit with profile_directory={profile_directory}, headless={headless}, channel={channel}")
     print(f"[get_playwright_tools] User data dir: {user_data_dir}")
-    # Persistent context user_data_dir = the actual profile sub-folder
+    # Chrome expects --user-data-dir=<parent> and --profile-directory=<subdir>.
+    # launch_persistent_context(user_data_dir) maps to --user-data-dir, so we
+    # pass the *parent* and add --profile-directory to args.
     if user_data_dir:
-        profile_path = str(user_data_dir / profile_directory)
+        profile_path = str(user_data_dir)
     else:
         # Fallback to a temporary directory if no profile is provided
-        # This keeps the "launch_persistent_context" logic unified
         temp_dir = tempfile.mkdtemp(prefix="ciri_playwright_")
-        profile_path = str(Path(temp_dir) / profile_directory)
+        profile_path = temp_dir
         logger.info("No browser profile provided; using temporary directory: %s", temp_dir)
 
     launch_kwargs: dict = {
         "headless": headless,
-        "args": list(_STEALTH_ARGS),
+        "args": list(_STEALTH_ARGS) + [f"--profile-directory={profile_directory}"],
         "ignore_https_errors": True,
         "viewport": {"width": 1920, "height": 1080},
     }
@@ -326,11 +327,11 @@ def build_crawler_browser_config(
     }
 
     if profile_info:
-        profile_path = str(
-            profile_info["user_data_dir"] / profile_info["profile_directory"]
-        )
         kwargs["use_persistent_context"] = True
-        kwargs["user_data_dir"] = profile_path
+        kwargs["user_data_dir"] = str(profile_info["user_data_dir"])
+        kwargs["extra_args"] = list(_STEALTH_ARGS) + [
+            f"--profile-directory={profile_info['profile_directory']}"
+        ]
 
     return CrawlerBrowserConfig(**kwargs)
 
