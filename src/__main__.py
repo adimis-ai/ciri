@@ -863,7 +863,7 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
 
     with console.status("[bold blue]Thinking...", spinner="dots") as status:
         async for stream_type, chunk in graph.astream(
-            inputs, config, stream_mode=["updates", "messages"]
+            inputs, config, stream_mode=["updates", "messages"], subgraphs=True
         ):
             # ----- Messages stream: token-by-token AI output -----
             if stream_type == "messages":

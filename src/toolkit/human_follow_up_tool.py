@@ -10,7 +10,7 @@ class FollowUpInterruptValue(TypedDict):
     options: NotRequired[List[str]]
 
 
-@tool("follow_up_with_human")
+@tool
 def follow_up_with_human(
     question: str,
     options: Optional[List[str]] = None,

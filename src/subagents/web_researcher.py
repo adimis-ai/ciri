@@ -210,6 +210,8 @@ async def get_playwright_tools(
     headless: bool = False,
     channel: Optional[str] = None,
 ):
+    print(f"[get_playwright_tools] Initializing Playwright browser toolkit with profile_directory={profile_directory}, headless={headless}, channel={channel}")
+    print(f"[get_playwright_tools] User data dir: {user_data_dir}")
     # Persistent context user_data_dir = the actual profile sub-folder
     if user_data_dir:
         profile_path = str(user_data_dir / profile_directory)
@@ -235,7 +237,9 @@ async def get_playwright_tools(
         # sync_browser=browser_initializer.get_sync_browser(),
         async_browser=await browser_initializer.get_async_browser(),
     )
-    return adapter.get_tools()
+    tools = adapter.get_tools()
+    print(f"Initialized Playwright browser with profile at {profile_path} with tools: {[tool.name for tool in tools]}")
+    return tools
 
 
 # ---------------------------------------------------------------------------
@@ -591,8 +595,9 @@ async def build_web_researcher_agent(
         headless=effective_headless,
         channel=channel,
     )
+    
 
-    # --- crawl4ai crawler tool ---
+    # # --- crawl4ai crawler tool ---
     if not crawler_browser_config:
         crawler_browser_config = build_crawler_browser_config(
             profile_info=profile_info,
@@ -601,16 +606,16 @@ async def build_web_researcher_agent(
         )
     tools.append(build_web_crawler_tool(browser_config=crawler_browser_config))
 
-    # --- DuckDuckGo search ---
+    # # --- DuckDuckGo search ---
     tools.append(DuckDuckGoSearchResults(name="simple_web_search"))
 
-    # --- Human follow-up (captcha, login, clarification) ---
+    # # --- Human follow-up (captcha, login, clarification) ---
     tools.append(follow_up_with_human)
 
     # --- assemble agent ---
     agent = create_agent(
-        tools,
-        model,
+        model=model,
+        tools=tools,
         name="Web Researcher Agent",
         system_prompt=WEB_RESEARCHER_SYSTEM_PROMPT,
         middleware=[
