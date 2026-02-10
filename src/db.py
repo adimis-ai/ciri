@@ -52,7 +52,12 @@ class CiriDatabase:
                 "SELECT id, title, created_at, updated_at FROM threads ORDER BY updated_at DESC"
             )
             return [
-                {"id": row[0], "title": row[1], "created_at": row[2], "updated_at": row[3]}
+                {
+                    "id": row[0],
+                    "title": row[1],
+                    "created_at": row[2],
+                    "updated_at": row[3],
+                }
                 for row in cursor.fetchall()
             ]
 

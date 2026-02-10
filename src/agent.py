@@ -17,15 +17,12 @@ from langgraph.errors import GraphInterrupt
 from langchain_core.tools import BaseTool
 from langgraph.store.base import BaseStore
 from langgraph.cache.base import BaseCache
-from crawl4ai import ProxyConfig, BrowserConfig
 from deepagents.backends import FilesystemBackend
 from deepagents import SubAgent, CompiledSubAgent
 from pydantic import BaseModel, Field, ConfigDict
-from langchain.agents.middleware import AgentMiddleware, ToolRetryMiddleware
 from browser_use.llm.openrouter.chat import ChatOpenRouter
-from langchain_community.tools import DuckDuckGoSearchResults
 from langchain.chat_models import init_chat_model, BaseChatModel
-from browser_use.browser.profile import BrowserProfile, ProxySettings
+from langchain.agents.middleware import AgentMiddleware, ToolRetryMiddleware
 from typing import (
     Optional,
     List,
@@ -54,8 +51,6 @@ from deepagents.middleware.filesystem import FilesystemState
 
 from .middlewares import TeamRuntimeMiddleware
 from .toolkit import (
-    build_web_surfer_tool,
-    build_web_crawler_tool,
     follow_up_with_human,
     FollowUpInterruptValue,
 )
@@ -65,15 +60,6 @@ load_all_dotenv()
 
 # Constants
 CIRI_SYSTEM_PROMPT = """You are CIRI, a female desktop-class personal AI copilot embedded in the user's local environment. You are an autonomous execution agent with tools, persistent memory, filesystem access, and the ability to delegate complex work to subagents.
-
-# Tool Selection
-
-Choose the least powerful tool that accomplishes the task. Escalate only when necessary.
-
-1. **`simple_web_search`** — Quick factual lookups, finding URLs, verifying current information.
-2. **`web_crawler`** — Extracting clean text from known URLs. Use `deep_crawl=True` to discover and extract content from linked pages across a site.
-3. **`web_surfer_tool`** — Interactive browser automation: filling forms, clicking elements, handling authentication, navigating JavaScript-heavy applications.
-4. **Subagents** — Delegate via the `task` tool when work requires deep analysis, heavy context, or can run in isolation.
 
 Never fabricate tool outputs. If a task requires external data, use a tool.
 
@@ -226,153 +212,6 @@ class ShellToolConfig(BaseModel):
     redaction_rules: tuple[RedactionRule, ...] | list[RedactionRule] | None = None
 
 
-class WebSurferBrowserConfig(BaseModel):
-    """Configuration for web surfer browser."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
-
-    # Core configuration
-    id: Optional[str] = None
-    cdp_url: Optional[str] = None
-    browser_profile: Optional[BrowserProfile] = None
-
-    # Local browser launch params
-    executable_path: Optional[Union[str, Path]] = None
-    headless: Optional[bool] = None
-    user_data_dir: Optional[Union[str, Path]] = None
-    profile_directory: Optional[str] = None
-    args: Optional[list[str]] = None
-    downloads_path: Optional[Union[str, Path]] = None
-
-    # Common params
-    headers: Optional[dict[str, str]] = None
-    allowed_domains: Optional[list[str]] = None
-    prohibited_domains: Optional[list[str]] = None
-    keep_alive: Optional[bool] = None
-    minimum_wait_page_load_time: Optional[float] = None
-    wait_for_network_idle_page_load_time: Optional[float] = None
-    wait_between_actions: Optional[float] = None
-    auto_download_pdfs: Optional[bool] = None
-    cookie_whitelist_domains: Optional[list[str]] = None
-    cross_origin_iframes: Optional[bool] = None
-    highlight_elements: Optional[bool] = None
-    dom_highlight_elements: Optional[bool] = None
-    paint_order_filtering: Optional[bool] = None
-    max_iframes: Optional[int] = None
-    max_iframe_depth: Optional[int] = None
-
-    # Environment / Chromium params
-    env: Optional[dict[str, Union[str, float, bool]]] = None
-    ignore_default_args: Optional[Union[list[str], Literal[True]]] = None
-    channel: Optional[str] = None
-    chromium_sandbox: Optional[bool] = None
-    devtools: Optional[bool] = None
-    traces_dir: Optional[Union[str, Path]] = None
-    accept_downloads: Optional[bool] = None
-    permissions: Optional[list[str]] = None
-    user_agent: Optional[str] = None
-
-    # Viewport / screen
-    screen: Optional[dict[str, Any]] = None
-    viewport: Optional[dict[str, Any]] = None
-    no_viewport: Optional[bool] = None
-    device_scale_factor: Optional[float] = None
-
-    # HAR / video recording
-    record_har_content: Optional[str] = None
-    record_har_mode: Optional[str] = None
-    record_har_path: Optional[Union[str, Path]] = None
-    record_video_dir: Optional[Union[str, Path]] = None
-    record_video_framerate: Optional[int] = None
-    record_video_size: Optional[dict[str, int]] = None
-
-    # State / security
-    storage_state: Optional[Union[str, Path, dict[str, Any]]] = None
-    disable_security: Optional[bool] = None
-    deterministic_rendering: Optional[bool] = None
-    proxy: Optional[ProxySettings] = None
-    enable_default_extensions: Optional[bool] = None
-
-    # Window
-    window_size: Optional[dict[str, int]] = None
-    window_position: Optional[dict[str, int]] = None
-    filter_highlight_ids: Optional[bool] = None
-    profile_directory: Optional[str] = None
-
-
-class WebCrawlerBrowserConfig(BaseModel):
-    """Configuration for web crawler browser."""
-
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
-    # Browser selection / lifecycle
-    browser_type: str = "chromium"
-    browser_mode: str = "dedicated"
-    use_managed_browser: bool = False
-
-    # Headless / channel
-    headless: bool = True
-    chrome_channel: str = "chromium"
-    channel: str = "chromium"
-
-    # CDP / remote control
-    cdp_url: Optional[str] = None
-    browser_context_id: Optional[str] = None
-    target_id: Optional[str] = None
-    cdp_cleanup_on_close: bool = False
-
-    # Context handling
-    create_isolated_context: bool = False
-    use_persistent_context: bool = False
-    user_data_dir: Optional[Union[str, Path]] = None
-
-    # Proxy
-    proxy: Optional[str] = None
-    proxy_config: Optional[Union[ProxyConfig, dict[str, Any]]] = None
-
-    # Viewport
-    viewport_width: int = 1080
-    viewport_height: int = 600
-    viewport: Optional[dict[str, int]] = None
-
-    # Downloads / storage
-    accept_downloads: bool = False
-    downloads_path: Optional[Union[str, Path]] = None
-    storage_state: Optional[Union[str, Path, dict[str, Any]]] = None
-
-    # Security / execution
-    ignore_https_errors: bool = True
-    java_script_enabled: bool = True
-
-    # Lifecycle / logging
-    sleep_on_close: bool = False
-    verbose: bool = True
-
-    # Cookies / headers
-    cookies: Optional[list[dict[str, Any]]] = None
-    headers: Optional[dict[str, str]] = None
-
-    # User agent
-    user_agent: str = (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"
-    )
-    user_agent_mode: str = ""
-    user_agent_generator_config: dict[str, Any] = Field(default_factory=dict)
-
-    # Rendering modes
-    text_mode: bool = False
-    light_mode: bool = False
-
-    # Chromium args / debugging
-    extra_args: Optional[list[str]] = None
-    debugging_port: int = 9222
-    host: str = "localhost"
-
-    # Stealth / init
-    enable_stealth: bool = False
-    init_scripts: Optional[list[str]] = None
-
-
 class SerializableSubAgent(BaseModel):
     """Serializable configuration for subagents."""
 
@@ -382,8 +221,6 @@ class SerializableSubAgent(BaseModel):
     description: str
     system_prompt: str
     use_parent_mcp_tools: bool = True
-    include_web_surfer_tool: bool = True
-    include_web_crawler_tool: bool = True
     include_follow_up_with_human_tool: bool = True
     include_shell_tool_middleware: bool = True
     llm_config: Optional[LLMConfig] = None
@@ -569,15 +406,8 @@ class MiddlewareBuilder:
 class ToolsBuilder:
     """Builds tool collections for agents."""
 
-    def __init__(
-        self,
-        llm_config: LLMConfig,
-        surfer_browser: Optional[Browser] = None,
-        crawler_browser_config: Optional[BrowserConfig] = None,
-    ):
+    def __init__(self, llm_config: LLMConfig):
         self.llm_config = llm_config
-        self.surfer_browser = surfer_browser
-        self.crawler_browser_config = crawler_browser_config
 
     def build_base_tools(
         self,
@@ -594,16 +424,6 @@ class ToolsBuilder:
         if mcp_tools:
             tools.extend(mcp_tools)
 
-        tools.append(DuckDuckGoSearchResults(name="simple_web_search"))
-        tools.append(build_web_crawler_tool(browser_config=self.crawler_browser_config))
-        if self.surfer_browser is not None:
-            tools.append(
-                build_web_surfer_tool(
-                    llm=self.llm_config.init_browser_use_model(),
-                    browser=self.surfer_browser,
-                )
-            )
-
         if include_follow_up_with_human:
             tools.append(follow_up_with_human)
 
@@ -612,8 +432,6 @@ class ToolsBuilder:
     def build_subagent_tools(
         self,
         mcp_tools: Optional[List[BaseTool]] = None,
-        include_web_crawler: bool = True,
-        include_web_surfer: bool = True,
         include_follow_up_with_human: bool = True,
     ) -> List[BaseTool]:
         """Build tool collection for subagents."""
@@ -621,19 +439,6 @@ class ToolsBuilder:
 
         if mcp_tools:
             tools.extend(mcp_tools)
-
-        if include_web_crawler:
-            tools.append(
-                build_web_crawler_tool(browser_config=self.crawler_browser_config)
-            )
-
-        if include_web_surfer and self.surfer_browser:
-            tools.append(
-                build_web_surfer_tool(
-                    browser=self.surfer_browser,
-                    llm=self.llm_config.init_browser_use_model(),
-                )
-            )
 
         if include_follow_up_with_human:
             tools.append(follow_up_with_human)
@@ -650,15 +455,11 @@ class SubAgentCompiler:
         parent_llm_config: LLMConfig,
         parent_shell_config: Optional[ShellToolConfig],
         parent_mcp_connections: Optional[Dict[str, Any]],
-        surfer_browser: Optional[Browser],
-        crawler_browser_config: Optional[BrowserConfig],
     ):
         self.root_dir = root_dir
         self.parent_llm_config = parent_llm_config
         self.parent_shell_config = parent_shell_config
         self.parent_mcp_connections = parent_mcp_connections
-        self.surfer_browser = surfer_browser
-        self.crawler_browser_config = crawler_browser_config
 
         # Scan filesystem once
         scanner = FileSystemScanner(root_dir)
@@ -668,8 +469,6 @@ class SubAgentCompiler:
     def compile(
         self,
         subagent_config: SerializableSubAgent,
-        debug: bool = False,
-        cache: Optional[BaseCache] = None,
     ) -> SubAgent:
         """Compile a single subagent configuration."""
         # Determine connections
@@ -684,13 +483,9 @@ class SubAgentCompiler:
         # Build tools
         tools_builder = ToolsBuilder(
             llm_config=llm_config,
-            surfer_browser=self.surfer_browser,
-            crawler_browser_config=self.crawler_browser_config,
         )
         tools = tools_builder.build_subagent_tools(
             mcp_tools=mcp_tools,
-            include_web_crawler=subagent_config.include_web_crawler_tool,
-            include_web_surfer=subagent_config.include_web_surfer_tool,
             include_follow_up_with_human=subagent_config.include_follow_up_with_human_tool,
         )
 
@@ -698,8 +493,6 @@ class SubAgentCompiler:
         middleware = self._build_middleware(
             subagent_config=subagent_config,
             llm_config=llm_config,
-            debug=False,
-            cache=cache,
         )
 
         return SubAgent(
@@ -728,8 +521,6 @@ class SubAgentCompiler:
         self,
         subagent_config: SerializableSubAgent,
         llm_config: LLMConfig,
-        debug: bool,
-        cache: Optional[BaseCache],
     ) -> List[AgentMiddleware]:
         """Build middleware stack for subagent."""
         middleware_list = []
@@ -765,196 +556,13 @@ class Ciri(BaseModel):
     include_follow_up_with_human_tool: bool = True
     mcp_connections: Optional[Dict[str, Any]] = None
     shell_tool_config: Optional[ShellToolConfig] = None
-    crawler_browser_config: Optional[WebCrawlerBrowserConfig] = None
-    web_surfer_browser_config: Optional[WebSurferBrowserConfig] = None
     interrupt_on: Optional[Union[bool, Dict[str, Any]]] = (
         None  # Union[bool, InterruptOnConfig] - Any used for Pydantic compatibility
     )
 
-    def _detect_system_browser(self) -> Dict[str, Any]:
-        """
-        Detect the user's installed system browser based on OS.
-
-        Returns a dict with:
-            - executable_path: Path to the browser executable (or None for bundled)
-            - browser_type: For crawl4ai ("chromium", "firefox", "webkit")
-            - channel: For browser_use ("chrome", "msedge", "chromium", etc.)
-            - user_data_dir: Path to browser profile directory (optional)
-        """
-        platform = sys.platform
-
-        # Browser detection configs: (executables, crawl4ai_type, browser_use_channel)
-        browser_configs = {
-            "chrome": {
-                "linux": [
-                    "/usr/bin/google-chrome",
-                    "/usr/bin/google-chrome-stable",
-                    "/opt/google/chrome/google-chrome",
-                ],
-                "darwin": [
-                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                ],
-                "win32": [
-                    os.path.expandvars(
-                        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"
-                    ),
-                    os.path.expandvars(
-                        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
-                    ),
-                    os.path.expandvars(
-                        r"%LocalAppData%\Google\Chrome\Application\chrome.exe"
-                    ),
-                ],
-                "crawl4ai_type": "chromium",
-                "browser_use_channel": "chrome",
-            },
-            "chromium": {
-                "linux": [
-                    "/usr/bin/chromium",
-                    "/usr/bin/chromium-browser",
-                    "/snap/bin/chromium",
-                ],
-                "darwin": [
-                    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-                ],
-                "win32": [],
-                "crawl4ai_type": "chromium",
-                "browser_use_channel": "chromium",
-            },
-            "firefox": {
-                "linux": [
-                    "/usr/bin/firefox",
-                    "/snap/bin/firefox",
-                ],
-                "darwin": [
-                    "/Applications/Firefox.app/Contents/MacOS/firefox",
-                ],
-                "win32": [
-                    os.path.expandvars(r"%ProgramFiles%\Mozilla Firefox\firefox.exe"),
-                    os.path.expandvars(
-                        r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"
-                    ),
-                ],
-                "crawl4ai_type": "firefox",
-                "browser_use_channel": None,  # browser_use doesn't support Firefox
-            },
-            "edge": {
-                "linux": [
-                    "/usr/bin/microsoft-edge",
-                    "/usr/bin/microsoft-edge-stable",
-                ],
-                "darwin": [
-                    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-                ],
-                "win32": [
-                    os.path.expandvars(
-                        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
-                    ),
-                    os.path.expandvars(
-                        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
-                    ),
-                ],
-                "crawl4ai_type": "chromium",
-                "browser_use_channel": "msedge",
-            },
-            "safari": {
-                "darwin": [
-                    "/Applications/Safari.app/Contents/MacOS/Safari",
-                ],
-                "crawl4ai_type": "webkit",
-                "browser_use_channel": None,  # browser_use doesn't support Safari
-            },
-        }
-
-        # Priority order: Chrome > Edge > Chromium > Firefox > Safari
-        priority = ["chrome", "edge", "chromium", "firefox"]
-        if platform == "darwin":
-            priority.append("safari")
-
-        for browser_name in priority:
-            config = browser_configs.get(browser_name, {})
-            paths = config.get(platform, [])
-
-            for path in paths:
-                if os.path.isfile(path):
-                    return {
-                        "executable_path": path,
-                        "browser_type": config["crawl4ai_type"],
-                        "channel": config["browser_use_channel"],
-                        "browser_name": browser_name,
-                    }
-
-            # Also check via shutil.which for PATH-based detection
-            which_result = shutil.which(browser_name) or shutil.which(
-                f"{browser_name}-browser"
-            )
-            if which_result:
-                return {
-                    "executable_path": which_result,
-                    "browser_type": config.get("crawl4ai_type", "chromium"),
-                    "channel": config.get("browser_use_channel", "chromium"),
-                    "browser_name": browser_name,
-                }
-
-        # Fallback to bundled Chromium (Playwright will download if needed)
-        return {
-            "executable_path": None,
-            "browser_type": "chromium",
-            "channel": "chromium",
-            "browser_name": "chromium (bundled)",
-        }
-
-    def _initialize_browsers(self) -> tuple[Optional[Browser], Optional[BrowserConfig]]:
-        """
-        Initialize browser configurations with auto-detection of system browser.
-
-        If no explicit browser config is provided, automatically detects the user's
-        installed browser to avoid bot detection (uses real browser profile/fingerprint).
-        """
-        # Detect system browser for auto-configuration
-        detected = self._detect_system_browser()
-
-        # Initialize web surfer browser (browser_use - Chromium only)
-        surfer_browser = None
-        if self.web_surfer_browser_config:
-            # User provided explicit config
-            surfer_browser = Browser(
-                **self.web_surfer_browser_config.model_dump(exclude_none=True)
-            )
-        elif detected["channel"]:
-            # Auto-configure with detected Chromium-based browser
-            surfer_browser = Browser(
-                channel=detected["channel"],
-                executable_path=detected["executable_path"],
-            )
-        else:
-            # Detected browser not supported by browser_use (Firefox/Safari)
-            # Fall back to bundled Chromium
-            surfer_browser = Browser()
-
-        # Initialize crawler browser (crawl4ai - supports chromium/firefox/webkit)
-        crawler_browser = None
-        if self.crawler_browser_config:
-            # User provided explicit config
-            crawler_browser = BrowserConfig(
-                **self.crawler_browser_config.model_dump(exclude_none=True)
-            )
-        else:
-            # Auto-configure with detected browser
-            crawler_browser = BrowserConfig(
-                browser_type=detected["browser_type"],
-                channel=detected["channel"] or "chromium",
-            )
-
-        return surfer_browser, crawler_browser
-
     def _compile_subagents(
         self,
         root_dir: Path,
-        surfer_browser: Optional[Browser],
-        crawler_browser_config: Optional[BrowserConfig],
-        debug: bool,
-        cache: Optional[BaseCache],
     ) -> List[Union[SubAgent, CompiledSubAgent]]:
         """Compile all subagent configurations."""
         scanner = FileSystemScanner(root_dir)
@@ -968,15 +576,11 @@ class Ciri(BaseModel):
             parent_llm_config=self.llm_config,
             parent_shell_config=self.shell_tool_config,
             parent_mcp_connections=self.mcp_connections,
-            surfer_browser=surfer_browser,
-            crawler_browser_config=crawler_browser_config,
         )
 
         return [
             compiler.compile(
                 SerializableSubAgent.model_validate(yaml.safe_load(path.read_text())),
-                debug=False,
-                cache=cache,
             )
             for path in subagent_paths
         ]
@@ -986,10 +590,7 @@ class Ciri(BaseModel):
         root_dir: Path,
         store: BaseStore,
         checkpointer: Checkpointer,
-        surfer_browser: Optional[Browser],
-        crawler_browser_config: Optional[BrowserConfig],
         compiled_subagents: List[Union[SubAgent, CompiledSubAgent]],
-        debug: bool = False,
         cache: Optional[BaseCache] = None,
         context_schema: Optional[Any] = None,
         tools: Optional[List[BaseTool]] = None,
@@ -1053,8 +654,6 @@ class Ciri(BaseModel):
         # Build tools
         tools_builder = ToolsBuilder(
             llm_config=self.llm_config,
-            surfer_browser=surfer_browser,
-            crawler_browser_config=crawler_browser_config,
         )
         agent_tools = tools_builder.build_base_tools(
             mcp_tools=mcp_tools,
@@ -1071,7 +670,6 @@ class Ciri(BaseModel):
         return create_deep_agent(
             name="ciri",
             store=store,
-            debug=False,
             cache=cache,
             backend=backend,
             memory=memory_paths,
@@ -1092,7 +690,6 @@ class Ciri(BaseModel):
         checkpointer: Checkpointer,
         filesystem_root_dir: Optional[Union[str, Path]] = None,
         *,
-        debug: bool = False,
         cache: Optional[BaseCache] = None,
         store: Optional[BaseStore] = None,
         context_schema: Optional[Any] = None,
@@ -1105,25 +702,15 @@ class Ciri(BaseModel):
 
         root_dir = Path(filesystem_root_dir).resolve()
 
-        # Initialize browsers
-        surfer_browser, crawler_browser_config = self._initialize_browsers()
-
         compiled_subagents = self._compile_subagents(
             root_dir=root_dir,
-            surfer_browser=surfer_browser,
-            crawler_browser_config=crawler_browser_config,
-            debug=False,
-            cache=cache,
         )
 
         return self._create_ciri(
             root_dir=root_dir,
             store=store,
             checkpointer=checkpointer,
-            surfer_browser=surfer_browser,
-            crawler_browser_config=crawler_browser_config,
             compiled_subagents=compiled_subagents,
-            debug=False,
             cache=cache,
             context_schema=context_schema,
             tools=tools,

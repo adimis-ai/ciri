@@ -187,7 +187,9 @@ def _get_wsl_windows_user() -> Optional[str]:
         for entry in users_dir.iterdir():
             if entry.is_dir() and entry.name not in skip:
                 # Check if this user has Chrome data
-                chrome_data = entry / "AppData" / "Local" / "Google" / "Chrome" / "User Data"
+                chrome_data = (
+                    entry / "AppData" / "Local" / "Google" / "Chrome" / "User Data"
+                )
                 if chrome_data.is_dir():
                     return entry.name
     return None
@@ -228,11 +230,13 @@ def _get_browser_user_data_dirs() -> list[dict]:
             win_user = _get_wsl_windows_user()
             if win_user:
                 win_local = Path("/mnt/c/Users") / win_user / "AppData" / "Local"
-                browser_paths.extend([
-                    ("chrome", win_local / "Google" / "Chrome" / "User Data"),
-                    ("edge", win_local / "Microsoft" / "Edge" / "User Data"),
-                    ("chromium", win_local / "Chromium" / "User Data"),
-                ])
+                browser_paths.extend(
+                    [
+                        ("chrome", win_local / "Google" / "Chrome" / "User Data"),
+                        ("edge", win_local / "Microsoft" / "Edge" / "User Data"),
+                        ("chromium", win_local / "Chromium" / "User Data"),
+                    ]
+                )
 
     for browser_name, data_dir in browser_paths:
         if data_dir.is_dir():
@@ -276,22 +280,30 @@ def detect_browser_profiles() -> list[dict]:
         # Check "Default" profile
         default_dir = user_data_dir / "Default"
         if default_dir.is_dir() and (default_dir / "Preferences").is_file():
-            profiles.append({
-                "browser": browser,
-                "user_data_dir": user_data_dir,
-                "profile_directory": "Default",
-                "display_name": _read_profile_name(default_dir),
-            })
+            profiles.append(
+                {
+                    "browser": browser,
+                    "user_data_dir": user_data_dir,
+                    "profile_directory": "Default",
+                    "display_name": _read_profile_name(default_dir),
+                }
+            )
 
         # Check "Profile N" directories
         for entry in sorted(user_data_dir.iterdir()):
-            if entry.is_dir() and entry.name.startswith("Profile ") and (entry / "Preferences").is_file():
-                profiles.append({
-                    "browser": browser,
-                    "user_data_dir": user_data_dir,
-                    "profile_directory": entry.name,
-                    "display_name": _read_profile_name(entry),
-                })
+            if (
+                entry.is_dir()
+                and entry.name.startswith("Profile ")
+                and (entry / "Preferences").is_file()
+            ):
+                profiles.append(
+                    {
+                        "browser": browser,
+                        "user_data_dir": user_data_dir,
+                        "profile_directory": entry.name,
+                        "display_name": _read_profile_name(entry),
+                    }
+                )
 
     return profiles
 

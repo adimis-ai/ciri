@@ -94,7 +94,7 @@ def ensure_playwright_installed() -> None:
         )
 
 
-def _setup_browser_profile() -> Optional[WebSurferBrowserConfig]:
+def _setup_browser_profile():
     """Detect browser profiles and let the user select one.
 
     If a previous choice was persisted in CIRI_BROWSER_PROFILE, reuse it.
@@ -112,32 +112,15 @@ def _setup_browser_profile() -> Optional[WebSurferBrowserConfig]:
             profile_dir = saved["profile_directory"]
             # Validate the source still exists
             if (source_dir / profile_dir / "Preferences").is_file():
-                with console.status("[bold cyan]Preparing browser profile...[/bold cyan]"):
+                with console.status(
+                    "[bold cyan]Preparing browser profile...[/bold cyan]"
+                ):
                     copied = copy_browser_profile(source_dir, profile_dir)
                 console.print(
                     f"[green]\u2713 Browser profile ready: {saved.get('display_name', profile_dir)} "
                     f"({saved.get('browser', 'chrome')})[/green]"
                 )
-                return WebSurferBrowserConfig(
-                    user_data_dir=str(copied),
-                    profile_directory=profile_dir,
-                    # Stability settings to reduce CDP timeout errors
-                    cross_origin_iframes=False,  # Disable cross-origin iframes which cause frame lookup failures
-                    max_iframes=5,  # Limit iframe processing (default is 100)
-                    max_iframe_depth=2,  # Reduce iframe traversal depth
-                    minimum_wait_page_load_time=5.0,  # Give pages more time to settle
-                    wait_for_network_idle_page_load_time=60.0,  # Wait longer for network idle
-                    # Performance args to disable extensions and speed up automation
-                    args=[
-                        "--disable-extensions",
-                        "--disable-background-networking",
-                        "--disable-sync",
-                        "--disable-translate",
-                        "--disable-default-apps",
-                        "--no-first-run",
-                        "--disable-popup-blocking",
-                    ],
-                )
+                return str(copied), profile_dir
             else:
                 console.print(
                     "[yellow]Previously saved browser profile no longer exists, re-detecting...[/yellow]"
@@ -160,7 +143,9 @@ def _setup_browser_profile() -> Optional[WebSurferBrowserConfig]:
         console.print(
             f"[cyan]Browser profile found:[/cyan] {p['display_name']} ({p['browser']})"
         )
-        use_it = Confirm.ask("Use this browser profile for web automation?", default=True)
+        use_it = Confirm.ask(
+            "Use this browser profile for web automation?", default=True
+        )
         if use_it:
             selected = p
     else:
@@ -173,7 +158,9 @@ def _setup_browser_profile() -> Optional[WebSurferBrowserConfig]:
 
         table.add_row("0", "", "No profile (clean browser)", "")
         for i, p in enumerate(profiles, 1):
-            table.add_row(str(i), p["browser"], p["display_name"], p["profile_directory"])
+            table.add_row(
+                str(i), p["browser"], p["display_name"], p["profile_directory"]
+            )
 
         console.print(table)
 
@@ -193,7 +180,9 @@ def _setup_browser_profile() -> Optional[WebSurferBrowserConfig]:
             if 1 <= idx <= len(profiles):
                 selected = profiles[idx - 1]
                 break
-            console.print(f"[red]Please enter a number between 0 and {len(profiles)}.[/red]")
+            console.print(
+                f"[red]Please enter a number between 0 and {len(profiles)}.[/red]"
+            )
 
     if selected is None:
         console.print("[dim]Using clean browser (no profile)[/dim]")
@@ -208,38 +197,21 @@ def _setup_browser_profile() -> Optional[WebSurferBrowserConfig]:
 
     # Persist the choice
     global_env = get_app_data_dir() / ".env"
-    persisted = _json.dumps({
-        "browser": selected["browser"],
-        "user_data_dir": str(selected["user_data_dir"]),
-        "profile_directory": selected["profile_directory"],
-        "display_name": selected["display_name"],
-    })
+    persisted = _json.dumps(
+        {
+            "browser": selected["browser"],
+            "user_data_dir": str(selected["user_data_dir"]),
+            "profile_directory": selected["profile_directory"],
+            "display_name": selected["display_name"],
+        }
+    )
     set_key(str(global_env), "CIRI_BROWSER_PROFILE", persisted)
 
     console.print(
         f"[green]\u2713 Browser profile ready: {selected['display_name']} ({selected['browser']})[/green]"
     )
 
-    return WebSurferBrowserConfig(
-        user_data_dir=str(copied),
-        profile_directory=selected["profile_directory"],
-        # Stability settings to reduce CDP timeout errors
-        # cross_origin_iframes=False,  # Disable cross-origin iframes which cause frame lookup failures
-        # max_iframes=5,  # Limit iframe processing (default is 100)
-        # max_iframe_depth=2,  # Reduce iframe traversal depth
-        # minimum_wait_page_load_time=1.0,  # Give pages more time to settle
-        # wait_for_network_idle_page_load_time=2.0,  # Wait longer for network idle
-        # Performance args to disable extensions and speed up automation
-        # args=[
-        #     "--disable-extensions",
-        #     "--disable-background-networking",
-        #     "--disable-sync",
-        #     "--disable-translate",
-        #     "--disable-default-apps",
-        #     "--no-first-run",
-        #     "--disable-popup-blocking",
-        # ],
-    )
+    return str(copied), selected["profile_directory"]
 
 
 # ---------------------------------------------------------------------------
@@ -573,9 +545,7 @@ async def render_thread_history(graph, config: dict) -> None:
                 content = _get_msg_content(msg)
                 if len(content) > 300:
                     content = content[:300] + "..."
-                console.print(
-                    f"\n[bold magenta]Tool Response ({name}):[/bold magenta]"
-                )
+                console.print(f"\n[bold magenta]Tool Response ({name}):[/bold magenta]")
                 console.print(f"[dim]{content}[/dim]")
 
     console.print()  # spacing after history
@@ -946,12 +916,20 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
                                     "args_str": "",
                                 }
                             # Update id if we get it (only on the first chunk)
-                            if tc_id and not pending_tool_calls_by_index[tc_index]["id"]:
+                            if (
+                                tc_id
+                                and not pending_tool_calls_by_index[tc_index]["id"]
+                            ):
                                 pending_tool_calls_by_index[tc_index]["id"] = tc_id
-                            if tc_name and not pending_tool_calls_by_index[tc_index]["name"]:
+                            if (
+                                tc_name
+                                and not pending_tool_calls_by_index[tc_index]["name"]
+                            ):
                                 pending_tool_calls_by_index[tc_index]["name"] = tc_name
                             if tc_args:
-                                pending_tool_calls_by_index[tc_index]["args_str"] += tc_args
+                                pending_tool_calls_by_index[tc_index][
+                                    "args_str"
+                                ] += tc_args
 
                 # Complete Tool response messages
                 elif isinstance(message, ToolMessage):
@@ -1133,16 +1111,10 @@ async def interactive_chat():
         db = CiriDatabase()
     console.print("[green]✓ Database ready[/green]")
 
-    # Step 4.5: Detect and select browser profile
-    web_surfer_config = _setup_browser_profile()
-
     # Step 5: Initialize LLM & agent
     with console.status("[bold cyan]⏳ Initializing LLM agent...[/bold cyan]"):
         llm_config = LLMConfig(model=model)
-        ciri_app = Ciri(
-            llm_config=llm_config,
-            web_surfer_browser_config=web_surfer_config,
-        )
+        ciri_app = Ciri(llm_config=llm_config)
 
     async with aiosqlite.connect(db.db_path) as conn:
         with console.status("[bold cyan]⏳ Compiling agent graph...[/bold cyan]"):
@@ -1162,7 +1134,9 @@ async def interactive_chat():
             root_dir = get_default_filesystem_root()
             completer = CiriCompleter(root_dir)
 
-        console.print(f"\n[green bold]✅ Ready![/green bold] Root directory: [bold]{root_dir}[/bold]")
+        console.print(
+            f"\n[green bold]✅ Ready![/green bold] Root directory: [bold]{root_dir}[/bold]"
+        )
         console.print(
             "[dim]Tip: @ for file paths, @skills: for skills. Commands: /threads, /new-thread, /delete-thread[/dim]\n"
         )
