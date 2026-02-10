@@ -12,7 +12,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
 from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
 from langchain_community.tools import DuckDuckGoSearchResults
-from langchain_community.tools.playwright.utils import run_async, run_sync
+from langchain_community.tools.playwright.utils import run_async
 from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import (
     TodoListMiddleware,
