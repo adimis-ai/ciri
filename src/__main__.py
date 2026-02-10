@@ -862,7 +862,7 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
             rendered_tool_call_ids.add(tc_id)
 
     with console.status("[bold blue]Thinking...", spinner="dots") as status:
-        async for stream_type, chunk in graph.astream(
+        async for namespace, stream_type, chunk in graph.astream(
             inputs, config, stream_mode=["updates", "messages"], subgraphs=True
         ):
             # ----- Messages stream: token-by-token AI output -----
@@ -879,7 +879,11 @@ async def run_graph(graph, inputs, config, completer: Optional[CiriCompleter] = 
 
                         status.stop()
                         if not prefix_printed:
-                            console.print("\n[bold cyan]CIRI:[/bold cyan] ", end="")
+                            agent_name = "CIRI"
+                            if namespace:
+                                sub_name = str(namespace[-1]).replace("_", " ").title()
+                                agent_name = f"CIRI ({sub_name})"
+                            console.print(f"\n[bold cyan]{agent_name}:[/bold cyan] ", end="")
                             prefix_printed = True
 
                         content = message.content
