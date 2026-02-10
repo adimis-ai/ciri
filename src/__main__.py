@@ -1139,7 +1139,7 @@ async def interactive_chat():
         with console.status("[bold cyan]⏳ Compiling agent graph...[/bold cyan]"):
             checkpointer = AsyncSqliteSaver(conn, serde=CiriJsonPlusSerializer())
             # Compile the agent graph
-            graph = ciri_app.compile(checkpointer=checkpointer)
+            graph = await ciri_app.compile(checkpointer=checkpointer)
         console.print("[green]✓ Agent ready[/green]")
 
         # Step 7: Create initial thread and build completer
@@ -1232,7 +1232,7 @@ async def interactive_chat():
                                 browser_name=browser_name,
                                 profile_directory=profile_directory,
                             )
-                            graph = ciri_app.compile(checkpointer=checkpointer)
+                            graph = await ciri_app.compile(checkpointer=checkpointer)
                             console.print(
                                 f"[green]Model switched to {new_model}[/green]"
                             )

@@ -313,13 +313,13 @@ class MCPClientManager:
     """Manages MCP client initialization and tool retrieval."""
 
     @staticmethod
-    def get_tools(connections: Optional[Dict[str, Any]]) -> List[BaseTool]:
+    async def get_tools(connections: Optional[Dict[str, Any]]) -> List[BaseTool]:
         """Get MCP tools from connections."""
         if not connections:
             return []
 
         mcp_client = MultiServerMCPClient(connections=connections)
-        return async_to_sync(mcp_client.get_tools)()
+        return await mcp_client.get_tools()
 
     @staticmethod
     def merge_connections(
@@ -437,7 +437,7 @@ class SubAgentCompiler:
         self.memory_paths = scanner.scan_memory_paths()
         self.skills_paths = scanner.scan_skills_paths()
 
-    def compile(
+    async def compile(
         self,
         subagent_config: SerializableSubAgent,
     ) -> SubAgent:
@@ -449,7 +449,7 @@ class SubAgentCompiler:
         llm_config = subagent_config.llm_config or self.parent_llm_config
 
         # Get MCP tools
-        mcp_tools = MCPClientManager.get_tools(connections)
+        mcp_tools = await MCPClientManager.get_tools(connections)
 
         # Build tools
         tools_builder = ToolsBuilder(
@@ -535,7 +535,7 @@ class Ciri(BaseModel):
         None  # Union[bool, InterruptOnConfig] - Any used for Pydantic compatibility
     )
 
-    def _compile_subagents(
+    async def _compile_subagents(
         self,
         root_dir: Path,
     ) -> List[Union[SubAgent, CompiledSubAgent]]:
@@ -549,7 +549,7 @@ class Ciri(BaseModel):
 
         # --- Web researcher sub-agent ---
         if self.web_search:
-            web_researcher = build_web_researcher_agent(
+            web_researcher = await build_web_researcher_agent(
                 model=self.llm_config.init_langchain_model(),
                 browser_name=self.browser_name,
                 profile_directory=self.profile_directory,
@@ -569,17 +569,19 @@ class Ciri(BaseModel):
                 parent_mcp_connections=self.mcp_connections,
             )
             subagents.extend(
-                compiler.compile(
-                    SerializableSubAgent.model_validate(
-                        yaml.safe_load(path.read_text())
-                    ),
-                )
-                for path in subagent_paths
+                [
+                    await compiler.compile(
+                        SerializableSubAgent.model_validate(
+                            yaml.safe_load(path.read_text())
+                        ),
+                    )
+                    for path in subagent_paths
+                ]
             )
 
         return subagents
 
-    def _create_ciri(
+    async def _create_ciri(
         self,
         root_dir: Path,
         store: BaseStore,
@@ -593,7 +595,7 @@ class Ciri(BaseModel):
     ):
         """Create the CIRI agent instance (private method)."""
         # Get MCP tools
-        mcp_tools = MCPClientManager.get_tools(self.mcp_connections)
+        mcp_tools = await MCPClientManager.get_tools(self.mcp_connections)
 
         # Scan filesystem
         scanner = FileSystemScanner(root_dir)
@@ -679,7 +681,7 @@ class Ciri(BaseModel):
             middleware=middleware_stack,
         )
 
-    def compile(
+    async def compile(
         self,
         checkpointer: Checkpointer,
         filesystem_root_dir: Optional[Union[str, Path]] = None,
@@ -696,11 +698,11 @@ class Ciri(BaseModel):
 
         root_dir = Path(filesystem_root_dir).resolve()
 
-        compiled_subagents = self._compile_subagents(
+        compiled_subagents = await self._compile_subagents(
             root_dir=root_dir,
         )
 
-        return self._create_ciri(
+        return await self._create_ciri(
             root_dir=root_dir,
             store=store,
             checkpointer=checkpointer,
