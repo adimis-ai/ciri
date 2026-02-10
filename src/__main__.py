@@ -348,7 +348,7 @@ class ModelCompleter(Completer):
 
 
 async def fetch_openrouter_models() -> List[str]:
-    """Fetch available models from OpenRouter."""
+    """Fetch available models from OpenRouter, filtering for 150k+ context, vision, and tool support."""
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         return []
@@ -361,7 +361,41 @@ async def fetch_openrouter_models() -> List[str]:
             response = await client.get(url, headers=headers, timeout=10.0)
             if response.status_code == 200:
                 data = response.json()
-                return [m["id"] for m in data.get("data", [])]
+                models = []
+                for m in data.get("data", []):
+                    # Filtering criteria:
+                    # 1. Context >= 150k
+                    context = m.get("context_length", 0)
+                    if context < 150000:
+                        continue
+
+                    # 2. Vision support (input_modalities contains 'image')
+                    arch = m.get("architecture", {})
+                    input_modalities = arch.get("input_modalities", [])
+                    has_vision = "image" in input_modalities
+
+                    # 3. Tool calling support (supported_parameters contains 'tools' or 'functions')
+                    supported_params = m.get("supported_parameters", [])
+                    has_tools = "tools" in supported_params or "functions" in supported_params
+
+                    if has_vision and has_tools:
+                        model_id = m["id"]
+                        
+                        # Check if it's a free model (pricing is "0" for both prompt and completion)
+                        pricing = m.get("pricing", {})
+                        is_free = (
+                            pricing.get("prompt") == "0" and 
+                            pricing.get("completion") == "0"
+                        )
+                        
+                        if is_free:
+                            model_id += " (free)"
+                            
+                        models.append(model_id)
+                
+                # Sort alphabetically, but put free models or specific preferred ones first if needed?
+                # For now just return as-is or sorted.
+                return sorted(models)
     except Exception as e:
         console.print(f"[dim red]Failed to fetch OpenRouter models: {e}[/dim red]")
 
