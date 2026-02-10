@@ -12,7 +12,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
 from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
 from langchain_community.tools import DuckDuckGoSearchResults
-from langchain_community.tools.playwright.utils import run_async
+from langchain_community.tools.playwright.utils import run_async, run_sync
 from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import (
     TodoListMiddleware,
@@ -184,22 +184,20 @@ class PlaywrightBrowserInit:
         from playwright.sync_api import sync_playwright
 
         pw = sync_playwright().start()
-        context = pw.chromium.launch_persistent_context(
+        return pw.chromium.launch_persistent_context(
             self.profile_path, **self.launch_kwargs
-        )
-        return context.browser
+        ).browser
 
-    async def get_async_browser(self) -> "AsyncBrowser":
+    def get_async_browser(self) -> "AsyncBrowser":
         from playwright.async_api import async_playwright
 
-        pw = await async_playwright().start()
-        context = await pw.chromium.launch_persistent_context(
+        pw = run_async(async_playwright().start())
+        return run_async(pw.chromium.launch_persistent_context(
             self.profile_path, **self.launch_kwargs
-        )
-        return context.browser
+        )).browser
 
 
-async def get_playwright_tools(
+def get_playwright_tools(
     user_data_dir: Optional[Path] = None,
     profile_directory: str = "Default",
     headless: bool = False,
@@ -227,8 +225,8 @@ async def get_playwright_tools(
     browser_initializer = PlaywrightBrowserInit(profile_path, launch_kwargs)
 
     adapter = PlayWrightBrowserToolkit.from_browser(
-        sync_browser=None,
-        async_browser=await browser_initializer.get_async_browser(),
+        sync_browser=browser_initializer.get_sync_browser,
+        async_browser=browser_initializer.get_async_browser,
     )
     return adapter.get_tools()
 
@@ -531,7 +529,7 @@ the answer, then provide supporting evidence.
 # ---------------------------------------------------------------------------
 
 
-async def build_web_researcher_agent(
+def build_web_researcher_agent(
     model: BaseChatModel,
     browser_name: Optional[str] = None,
     profile_directory: Optional[str] = None,
@@ -580,7 +578,7 @@ async def build_web_researcher_agent(
         )
 
     # --- Playwright interactive tools ---
-    tools: list[BaseTool] = await get_playwright_tools(
+    tools: list[BaseTool] = get_playwright_tools(
         user_data_dir=profile_info["user_data_dir"] if profile_info else None,
         profile_directory=profile_info["profile_directory"] if profile_info else None,
         headless=effective_headless,
