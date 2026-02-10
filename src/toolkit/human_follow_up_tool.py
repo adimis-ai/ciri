@@ -11,10 +11,9 @@ class FollowUpInterruptValue(TypedDict):
 
 
 @tool(
+    "follow_up_with_human",
     infer_schema=True,
     return_direct=True,
-    name_or_callable="follow_up_with_human",
-    description="Use this tool to ask the user a follow-up question when you need clarification or input.",
 )
 def follow_up_with_human(
     question: str,
@@ -22,6 +21,7 @@ def follow_up_with_human(
     *,
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> str:
+    """Use this tool to ask the user a follow-up question when you need clarification or input."""
     response = interrupt(
         {"type": "human_follow_up", "question": question, "options": options}
     )
