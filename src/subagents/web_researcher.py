@@ -32,9 +32,13 @@ def build_web_researcher_agent(
     profile_directory: Optional[str] = None,
     crawler_browser_config: Optional[CrawlerBrowserConfig] = None,
 ) -> CompiledSubAgent:
+    if not crawler_browser_config:
+        crawler_browser_config = CrawlerBrowserConfig(
+        )
+    
     tools = get_playwright_tools()
+    tools.extend([build_web_crawler_tool(crawler_browser_config)])
     tools.extend([DuckDuckGoSearchResults(name="simple_web_search")])
-    tools.append(build_web_crawler_tool(crawler_browser_config))
 
     agent = create_agent(
         tools,
