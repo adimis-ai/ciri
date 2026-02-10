@@ -225,7 +225,7 @@ def get_playwright_tools(
     browser_initializer = PlaywrightBrowserInit(profile_path, launch_kwargs)
 
     adapter = PlayWrightBrowserToolkit.from_browser(
-        sync_browser=browser_initializer.get_sync_browser,
+        # sync_browser=browser_initializer.get_sync_browser,
         async_browser=browser_initializer.get_async_browser,
     )
     return adapter.get_tools()
