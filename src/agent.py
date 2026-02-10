@@ -554,7 +554,7 @@ class Ciri(BaseModel):
         None  # Union[bool, InterruptOnConfig] - Any used for Pydantic compatibility
     )
 
-    def _compile_subagents(
+    async def _compile_subagents(
         self,
         root_dir: Path,
     ) -> List[Union[SubAgent, CompiledSubAgent]]:
@@ -568,7 +568,7 @@ class Ciri(BaseModel):
 
         # --- Web researcher sub-agent ---
         if self.web_search:
-            web_researcher = build_web_researcher_agent(
+            web_researcher = await build_web_researcher_agent(
                 model=self.llm_config.init_langchain_model(),
                 browser_name=self.browser_name,
                 profile_directory=self.profile_directory,
@@ -698,7 +698,7 @@ class Ciri(BaseModel):
             middleware=middleware_stack,
         )
 
-    def compile(
+    async def compile(
         self,
         checkpointer: Checkpointer,
         filesystem_root_dir: Optional[Union[str, Path]] = None,
@@ -715,7 +715,7 @@ class Ciri(BaseModel):
 
         root_dir = Path(filesystem_root_dir).resolve()
 
-        compiled_subagents = self._compile_subagents(
+        compiled_subagents = await self._compile_subagents(
             root_dir=root_dir,
         )
 

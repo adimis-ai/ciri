@@ -11,7 +11,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
-from langchain_community.tools.playwright.utils import run_async
+
 from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import (
     TodoListMiddleware,
@@ -278,7 +278,7 @@ def _launch_persistent_sync_browser(
 # ---------------------------------------------------------------------------
 
 
-def get_playwright_tools(
+async def get_playwright_tools(
     profile_info: Optional[dict] = None,
     headless: Optional[bool] = None,
     channel: Optional[str] = None,
@@ -300,13 +300,11 @@ def get_playwright_tools(
     # --- attempt persistent-context launch with real profile ---
     if profile_info:
         try:
-            adapter, _pw = run_async(
-                _launch_persistent_async_browser(
-                    user_data_dir=profile_info["user_data_dir"],
-                    profile_directory=profile_info["profile_directory"],
-                    headless=headless,
-                    channel=channel,
-                )
+            adapter, _pw = await _launch_persistent_async_browser(
+                user_data_dir=profile_info["user_data_dir"],
+                profile_directory=profile_info["profile_directory"],
+                headless=headless,
+                channel=channel,
             )
             toolkit = PlayWrightBrowserToolkit(async_browser=adapter)
             return toolkit.get_tools()
@@ -318,11 +316,10 @@ def get_playwright_tools(
             )
 
     # --- fallback: plain launch with stealth args ---
-    from langchain_community.tools.playwright.utils import (
-        create_async_playwright_browser,
-    )
+    from playwright.async_api import async_playwright
 
-    browser = create_async_playwright_browser(
+    pw = await async_playwright().start()
+    browser = await pw.chromium.launch(
         headless=headless, args=list(_STEALTH_ARGS)
     )
     toolkit = PlayWrightBrowserToolkit.from_browser(async_browser=browser)
@@ -627,7 +624,7 @@ the answer, then provide supporting evidence.
 # ---------------------------------------------------------------------------
 
 
-def build_web_researcher_agent(
+async def build_web_researcher_agent(
     model: BaseChatModel,
     browser_name: Optional[str] = None,
     profile_directory: Optional[str] = None,
@@ -676,7 +673,7 @@ def build_web_researcher_agent(
         )
 
     # --- Playwright interactive tools ---
-    tools: list[BaseTool] = get_playwright_tools(
+    tools: list[BaseTool] = await get_playwright_tools(
         profile_info=profile_info,
         headless=effective_headless,
         channel=channel,
