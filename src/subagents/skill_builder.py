@@ -1,8 +1,10 @@
+from pathlib import Path
 from langgraph.cache.memory import InMemoryCache
 from deepagents.backends import FilesystemBackend
 from langchain_core.language_models import BaseChatModel
 from deepagents import create_deep_agent, CompiledSubAgent
 
+from ..utils import get_default_filesystem_root
 from ..toolkit.web_crawler_tool import BrowserConfig
 from ..toolkit.skill_manager_tools import (
     SKILL_MANAGEMENT_TOOLS,
@@ -10,20 +12,31 @@ from ..toolkit.skill_manager_tools import (
 )
 from .web_researcher import build_web_researcher_agent
 
-SKILL_BUILDER_SYSTEM_PROMPT = """You are the Skill Builder SubAgent, responsible for building new and managing existing skills in the .ciri/skills directory. You will use the Web Researcher SubAgent to gather information and research as needed to create and maintain skills. Your tasks include:
+SKILL_BUILDER_SYSTEM_PROMPT = """You are the Skill Builder SubAgent, responsible for building new and managing existing skills in the .ciri/skills directory. You will use the Web Researcher SubAgent to gather information and research as needed to create and maintain skills.
 
-1. Building new skills based on user requests and requirements.
-2. Managing existing skills by updating them with new information or improving their functionality.
-3. Collaborating with the Web Researcher SubAgent to gather necessary information for skill development and maintenance.
-4. Ensuring that all skills are well-documented and organized in the .ciri/skills directory.
-5. Following best practices for skill development and maintenance to ensure high-quality skills for users.
+## CRITICAL: Skill Creation Standard
 
-You have access to the following skill management tools:
+You MUST use the `skill-creator` skill when building new skills. This skill provides the `init_skill.py` script which ensures:
+1.  **Correct Directory**: Skills are created in `.ciri/skills/`, which is REQUIRED for the `SkillsMiddleware` to automatically discover and load them.
+2.  **Standard Structure**: The generated `SKILL.md` and resource folders follow the required format.
 
-- **upsert_skill**: Create or update a skill with structured input following Agent Skills specification. Use this to create new skills or update existing ones.
-- **delete_skill**: Delete a skill by name. Use this to remove skills that are no longer needed.
-- **list_skills**: List all existing skills across all .ciri/skills directories. Use this to discover what skills are available.
-- **get_skill_info**: Get detailed information about a specific skill including its content, metadata, and file information.
+**NEVER create a skill manually.** Always use:
+`python3 .ciri/skills/skill-creator/scripts/init_skill.py <skill-name>`
+
+## Your Tasks
+
+1.  **Building New Skills**:
+    -   Receive user requirements.
+    -   Use `init_skill.py` to scaffold the skill.
+    -   Populate `SKILL.md` and resources based on requirements.
+2.  **Managing Existing Skills**:
+    -   Update skills with new information or improved functionality.
+    -   Use `upsert_skill` or file editing tools as appropriate.
+3.  **Researching**:
+    -   Collaborate with the Web Researcher SubAgent to gather necessary information.
+4.  **Quality Assurance**:
+    -   Ensure skills are well-documented and strictly follow the Agent Skills specification.
+    -   Verify that created skills are 100% compatible with the `SkillsMiddleware`.
 
 ## Agent Skills Specification Format
 
@@ -55,32 +68,20 @@ allowed_tools: []
 Step-by-step instructions for using this skill, with examples and best practices.
 ```
 
-### Skill Name Requirements (Agent Skills spec):
+### Skill Name Requirements:
 - Max 64 characters
 - Lowercase alphanumeric and single hyphens only (a-z, 0-9, -)
-- Cannot start or end with hyphen
-- No consecutive hyphens
 - Must match directory name
 
 ### Required YAML Frontmatter Fields:
 - `name`: Skill identifier matching directory name
 - `description`: Brief description (max 1024 chars)
 
-### Optional YAML Frontmatter Fields:
-- `license`: License reference
-- `compatibility`: Environment requirements
-- `metadata`: Key-value pairs for additional info
-- `allowed_tools`: List of pre-approved tools
-
 When creating or updating skills:
-- Use descriptive, hyphen-separated names (e.g., "web-research", "code-review")
-- Include comprehensive descriptions following the spec limits
-- Structure markdown content with clear "When to Use" and "Instructions" sections
-- Add relevant metadata for versioning and authorship
-- Ensure skills are well-documented for easy understanding and usage
-- Follow the progressive disclosure pattern - skills should be self-contained guides
-
-Always validate skill names per the Agent Skills specification and handle errors gracefully.
+- Use descriptive, hyphen-separated names.
+- Include comprehensive descriptions.
+- Structure markdown content with clear "When to Use" and "Instructions" sections.
+- Ensure skills are self-contained guides (Progressive Disclosure).
 """
 
 
@@ -95,7 +96,7 @@ async def build_skill_builder_agent(
 ) -> CompiledSubAgent:
     # Initialize the skill manager with the backend
     initialize_skill_manager(backend)
-    
+
     # Create the Web Researcher SubAgent
     web_researcher_agent = await build_web_researcher_agent(
         model=model,
@@ -103,6 +104,12 @@ async def build_skill_builder_agent(
         browser_name=browser_name,
         profile_directory=profile_directory,
         crawler_browser_config=crawler_browser_config,
+    )
+
+    # Path to the skill-creator skill
+    # We use get_default_filesystem_root() to ensure we find the project root correctly
+    skill_creator_path = (
+        get_default_filesystem_root() / ".ciri" / "skills" / "skill-creator"
     )
 
     # Define the Skill Builder SubAgent with skill management tools
@@ -113,10 +120,17 @@ async def build_skill_builder_agent(
         tools=SKILL_MANAGEMENT_TOOLS,
         subagents=[web_researcher_agent],
         system_prompt=SKILL_BUILDER_SYSTEM_PROMPT,
+        skills=[skill_creator_path] if skill_creator_path.exists() else [],
     )
 
     return CompiledSubAgent(
         name="skill_builder_agent",
         runnable=skill_builder_agent,
-        description="A SubAgent that builds new and manages existing skills in the .ciri/skills directory using the Web Researcher SubAgent for research and information gathering.",
+        description=(
+            "A specialized SubAgent for creating and managing AI skills in .ciri/skills.\n"
+            "WHEN TO USE: Invoke this agent when the user explicitly asks to 'create a skill', 'update a skill', 'build a new capability', or 'add a new tool' that involves creating a reusable skill package.\n"
+            "WHY: This agent enforces the required .ciri/skills structure, uses the mandatory `init_skill.py` script, and ensures `SkillsMiddleware` compatibility.\n"
+            "HOW: Provide a clear task description like 'Create a new pdf-processing skill' or 'Update the web-research skill to support deeper crawling'.\n"
+            "WHEN NOT TO USE: Do NOT use this for general coding tasks, one-off script creation, or answering questions about existing code that isn't a skill. If the user just wants a script run once, use the standard code execution tools."
+        ),
     )

@@ -11,7 +11,7 @@ def project_root(tmp_path):
     """Create a mock project structure with toolkits."""
     ciri_dir = tmp_path / ".ciri"
     toolkits_dir = ciri_dir / "toolkits"
-    
+
     # Python Toolkit
     py_tk_dir = toolkits_dir / "test_toolkit_py"
     py_src_dir = py_tk_dir / "src"
@@ -29,18 +29,18 @@ dependencies = ["fastmcp"]
     # TypeScript Toolkit
     ts_tk_dir = toolkits_dir / "test_toolkit_ts"
     ts_tk_dir.mkdir(parents=True)
-    
-    (ts_tk_dir / "package.json").write_text(json.dumps({
-        "name": "test_toolkit_ts",
-        "version": "0.1.0",
-        "dependencies": {
-            "@modelcontextprotocol/sdk": "^0.6.0"
-        },
-        "scripts": {
-            "build": "tsc"
-        },
-        "main": "dist/index.js"
-    }))
+
+    (ts_tk_dir / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "test_toolkit_ts",
+                "version": "0.1.0",
+                "dependencies": {"@modelcontextprotocol/sdk": "^0.6.0"},
+                "scripts": {"build": "tsc"},
+                "main": "dist/index.js",
+            }
+        )
+    )
 
     return tmp_path
 
@@ -76,10 +76,10 @@ async def test_toolkit_discovery_and_injection(project_root):
 
         # Verify discovery of BOTH toolkits
         assert len(middleware._toolkit_versions) == 2
-        
+
         py_tk_path = project_root / ".ciri" / "toolkits" / "test_toolkit_py"
         ts_tk_path = project_root / ".ciri" / "toolkits" / "test_toolkit_ts"
-        
+
         assert str(py_tk_path) in middleware._toolkit_versions
         assert str(ts_tk_path) in middleware._toolkit_versions
 
@@ -88,16 +88,16 @@ async def test_toolkit_discovery_and_injection(project_root):
         # 1. uv sync (for python)
         # 2. npm install (for ts)
         # 3. npm run build (for ts)
-        
+
         assert mock_run.call_count >= 3
-        
+
         calls = mock_run.call_args_list
         commands = [c[0][0] for c in calls]
-        
+
         uv_sync_called = False
         npm_install_called = False
         npm_build_called = False
-        
+
         for cmd in commands:
             if cmd == ["uv", "sync"]:
                 uv_sync_called = True
@@ -105,7 +105,7 @@ async def test_toolkit_discovery_and_injection(project_root):
                 npm_install_called = True
             if cmd == ["npm", "run", "build"]:
                 npm_build_called = True
-                
+
         assert uv_sync_called, "uv sync should be called"
         assert npm_install_called, "npm install should be called"
         assert npm_build_called, "npm run build should be called"
@@ -126,14 +126,14 @@ async def test_toolkit_discovery_and_injection(project_root):
 
         assert len(request.tools) == 3
         assert {t.name for t in request.tools} == {"existing_tool", "echo", "add"}
-        
+
         # Verify connection args passed to client
         _, kwargs = mock_client_class.call_args
-        connections = kwargs.get('connections', {})
-        
+        connections = kwargs.get("connections", {})
+
         assert "test_toolkit_py" in connections
         assert "test_toolkit_ts" in connections
-        
+
         assert connections["test_toolkit_py"]["command"] == "uv"
         assert connections["test_toolkit_ts"]["command"] == "node"
         assert connections["test_toolkit_ts"]["args"] == ["dist/index.js"]
@@ -153,7 +153,7 @@ async def test_toolkit_version_change(project_root):
 
         # Initial run
         middleware = ToolkitInjectorMiddleware(scan_root=project_root)
-        
+
         # Reset mock calls (but versions are tracked in class var, so we need to be careful of leakage if we don't clear it or if it persists)
         # The class variable _toolkit_versions persists across instances.
         mock_run.reset_mock()
@@ -174,7 +174,7 @@ dependencies = ["fastmcp"]
         # We should only see calls for the updated toolkit.
         # However, since test execution order mock_run might be fresh?
         # If test_toolkit_ts is still there and version unchanged, it should NOT trigger sync.
-        
+
         assert mock_run.call_count == 1
         assert mock_run.call_args[0][0] == ["uv", "sync"]
         assert middleware2._toolkit_versions[str(py_tk_path.resolve())] == "0.2.0"

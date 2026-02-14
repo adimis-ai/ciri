@@ -154,15 +154,15 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                     data = json.load(f)
                     deps = data.get("dependencies", {})
                     if "@modelcontextprotocol/sdk" in deps:
-                         # Verify structure or blindly accept?
-                         # Let's check for src/index.ts or dist/index.js as common patterns
-                         # But user might configure main differently.
-                         # Just checking dependency is safest for now,
-                         # assuming build process handles the rest.
+                        # Verify structure or blindly accept?
+                        # Let's check for src/index.ts or dist/index.js as common patterns
+                        # But user might configure main differently.
+                        # Just checking dependency is safest for now,
+                        # assuming build process handles the rest.
                         return True
             except Exception:
                 pass
-        
+
         return False
 
     def _sync_and_manage_servers(self, toolkit_dirs: List[Path]):
@@ -172,14 +172,14 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
             try:
                 version = "0.0.0"
                 is_python = (tk_dir / "pyproject.toml").exists()
-                
+
                 if is_python:
                     with open(tk_dir / "pyproject.toml", "rb") as f:
                         data = tomllib.load(f)
                         version = data.get("project", {}).get("version", "0.1.0")
                 else:
-                     # TypeScript
-                     with open(tk_dir / "package.json", "r") as f:
+                    # TypeScript
+                    with open(tk_dir / "package.json", "r") as f:
                         data = json.load(f)
                         version = data.get("version", "0.1.0")
 
@@ -200,15 +200,24 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                     else:
                         # TypeScript: npm install && npm run build
                         # We use 'npm ci' if package-lock.json exists for clean install, else 'npm install'
-                        cmd = ["npm", "ci"] if (tk_dir / "package-lock.json").exists() else ["npm", "install"]
+                        cmd = (
+                            ["npm", "ci"]
+                            if (tk_dir / "package-lock.json").exists()
+                            else ["npm", "install"]
+                        )
                         subprocess.run(cmd, cwd=tk_dir, check=True, capture_output=True)
-                        
+
                         # Build if script exists
                         # Check package.json for build script
                         with open(tk_dir / "package.json", "r") as f:
                             pkg_data = json.load(f)
                             if "build" in pkg_data.get("scripts", {}):
-                                subprocess.run(["npm", "run", "build"], cwd=tk_dir, check=True, capture_output=True)
+                                subprocess.run(
+                                    ["npm", "run", "build"],
+                                    cwd=tk_dir,
+                                    check=True,
+                                    capture_output=True,
+                                )
 
                     # Update version tracking
                     self._toolkit_versions[tk_path] = version
@@ -222,9 +231,11 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
 
         connections = {}
         for tk_dir in toolkit_dirs:
-            if (tk_dir / "pyproject.toml").exists() and (tk_dir / "src" / "main.py").exists():
-                 # Python / FastMCP
-                 connections[tk_dir.name] = {
+            if (tk_dir / "pyproject.toml").exists() and (
+                tk_dir / "src" / "main.py"
+            ).exists():
+                # Python / FastMCP
+                connections[tk_dir.name] = {
                     "command": "uv",
                     "args": ["run", "src/main.py"],
                     "cwd": str(tk_dir),
@@ -233,7 +244,7 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
             elif (tk_dir / "package.json").exists():
                 # TypeScript / Node
                 # Try to determine entry point from package.json
-                entry_point = "dist/index.js" # default
+                entry_point = "dist/index.js"  # default
                 try:
                     with open(tk_dir / "package.json", "r") as f:
                         data = json.load(f)
@@ -242,10 +253,10 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                         # If user specifies "main": "src/index.ts", we should assume build output is referenced?
                         # Or typically "main": "dist/index.js"
                         if "main" in data:
-                             entry_point = data["main"]
+                            entry_point = data["main"]
                 except Exception:
                     pass
-                
+
                 connections[tk_dir.name] = {
                     "command": "node",
                     "args": [entry_point],

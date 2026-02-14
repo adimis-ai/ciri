@@ -39,10 +39,10 @@ class SkillsMiddleware(BaseSkillsMiddleware):
         # 1. Store configuration for dynamic scanning
         self.root = Path(scan_root) if scan_root else get_default_filesystem_root()
         self.explicit_sources = sources
-        
+
         # 2. Bootstrap default skills before scanning
         self._bootstrap_default_skills()
-        
+
         logger.debug(f"Scanning for skills in: {self.root}")
 
         # 3. Initial scan
@@ -55,25 +55,27 @@ class SkillsMiddleware(BaseSkillsMiddleware):
         if they don't already exist.
         """
         default_skills_source = Path(__file__).parent.parent / "skills"
-        
+
         # Only proceed if source skills exist
         if not default_skills_source.exists():
-            logger.warning(f"Default skills source not found at {default_skills_source}")
+            logger.warning(
+                f"Default skills source not found at {default_skills_source}"
+            )
             return
 
         # Target directory: .ciri/skills in the project root
         target_skills_dir = self.root / ".ciri" / "skills"
-        
+
         try:
             # Ensure target directory exists
             target_skills_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Iterate through available default skills
             for item in default_skills_source.iterdir():
                 if item.is_dir():
                     skill_name = item.name
                     target_skill_path = target_skills_dir / skill_name
-                    
+
                     # Copy only if it doesn't exist in target
                     if not target_skill_path.exists():
                         logger.info(f"Bootstrapping default skill: {skill_name}")
@@ -82,11 +84,12 @@ class SkillsMiddleware(BaseSkillsMiddleware):
                         except Exception as e:
                             logger.error(f"Failed to copy skill {skill_name}: {e}")
                     else:
-                        logger.debug(f"Skill {skill_name} already exists in project, skipping.")
-                        
+                        logger.debug(
+                            f"Skill {skill_name} already exists in project, skipping."
+                        )
+
         except Exception as e:
             logger.error(f"Error bootstrapping default skills: {e}")
-
 
     def _refresh_sources(self):
         """Discover skill sources and update self.sources."""
