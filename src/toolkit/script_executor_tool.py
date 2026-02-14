@@ -58,7 +58,7 @@ class ScriptExecutorInput(BaseModel):
 
 
 def build_script_executor_tool(
-    name: str = "execute_script",
+    name: str = "execute_sandboxed_script",
     description: str = (
         "Execute standalone Python or JavaScript scripts in an isolated environment. "
         "The tool handles dependency installation (pip/npm), creates a temp workspace, "

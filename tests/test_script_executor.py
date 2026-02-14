@@ -29,7 +29,7 @@ class TestScriptExecutor(unittest.TestCase):
         result = self.tool.invoke(
             {
                 "type": "tool_call",
-                "name": "execute_script",
+                "name": "execute_sandboxed_script",
                 "args": {
                     "script_content": script,
                     "language": "python",
@@ -54,7 +54,7 @@ class TestScriptExecutor(unittest.TestCase):
         result = self.tool.invoke(
             {
                 "type": "tool_call",
-                "name": "execute_script",
+                "name": "execute_sandboxed_script",
                 "args": {
                     "script_content": script,
                     "language": "javascript",
@@ -78,7 +78,7 @@ class TestScriptExecutor(unittest.TestCase):
         result = self.tool.invoke(
             {
                 "type": "tool_call",
-                "name": "execute_script",
+                "name": "execute_sandboxed_script",
                 "args": {
                     "script_content": script,
                     "language": "python",
@@ -102,7 +102,7 @@ class TestScriptExecutor(unittest.TestCase):
         result = self.tool.invoke(
             {
                 "type": "tool_call",
-                "name": "execute_script",
+                "name": "execute_sandboxed_script",
                 "args": {
                     "script_content": script,
                     "language": "python",
