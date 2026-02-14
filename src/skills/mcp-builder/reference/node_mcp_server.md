@@ -76,21 +76,17 @@ The name should be:
 
 ## Project Structure
 
-Create the following structure for Node/TypeScript MCP servers:
+Create the following structure for Node/TypeScript MCP servers to ensure compatibility with the Ciri agent's `ToolkitInjectorMiddleware`:
 
 ```
 {service}-mcp-server/
-├── package.json
+├── package.json      # Must include @modelcontextprotocol/sdk and "main" entry point
 ├── tsconfig.json
 ├── README.md
 ├── src/
-│   ├── index.ts          # Main entry point with McpServer initialization
-│   ├── types.ts          # TypeScript type definitions and interfaces
-│   ├── tools/            # Tool implementations (one file per domain)
-│   ├── services/         # API clients and shared utilities
-│   ├── schemas/          # Zod validation schemas
-│   └── constants.ts      # Shared constants (API_URL, CHARACTER_LIMIT, etc.)
-└── dist/                 # Built JavaScript files (entry point: dist/index.js)
+│   ├── index.ts      # Main entry point
+│   └── ...
+└── dist/             # Build output (referenced by package.json "main")
 ```
 
 ## Tool Implementation
@@ -533,7 +529,7 @@ async function getUser(id: string): Promise<any> {
   "version": "1.0.0",
   "description": "MCP server for {Service} API integration",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/index.js", 
   "scripts": {
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",

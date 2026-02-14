@@ -42,6 +42,18 @@ The official MCP Python SDK provides FastMCP, a high-level framework for buildin
 **For complete SDK documentation, use WebFetch to load:**
 `https://raw.githubusercontent.com/modelcontextprotocol/python-sdk/main/README.md`
 
+## Project Structure
+
+Create the following structure for Python MCP servers to ensure compatibility with the Ciri agent's `ToolkitInjectorMiddleware`:
+
+```
+{service}_mcp/
+├── pyproject.toml      # Must include 'fastmcp' in dependencies
+├── src/
+│   └── main.py         # Main entry point for the server
+└── README.md
+```
+
 ## Server Naming Convention
 
 Python MCP servers must follow this naming pattern:
@@ -664,6 +676,27 @@ Your implementation MUST prioritize composability and code reuse:
 5. **Error Handling**: Use specific exception types (httpx.HTTPStatusError, not generic Exception)
 6. **Async Context Managers**: Use `async with` for resources that need cleanup
 7. **Constants**: Define module-level constants in UPPER_CASE
+
+### Configuration
+
+#### pyproject.toml
+
+Ensure your `pyproject.toml` handles dependencies correctly. The agent uses `uv sync` to install dependencies.
+
+```toml
+[project]
+name = "example-mcp"
+version = "0.1.0"
+description = "MCP server for Example Service"
+dependencies = [
+    "mcp[cli]",
+    "httpx",
+    # Add other dependencies here
+]
+
+[tool.uv]
+dev-dependencies = []
+```
 
 ## Quality Checklist
 

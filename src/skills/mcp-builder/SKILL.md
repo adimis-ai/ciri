@@ -89,8 +89,8 @@ To ensure your toolkit is automatically discovered and loaded by the `ToolkitInj
 
 **For Python (FastMCP):**
 *   Must use `pyproject.toml`
-*   Must include `fastmcp` in dependencies
-*   Entry point must be at `src/main.py`
+*   Must include `fastmcp` (or `mcp[cli]`) in dependencies
+*   Entry point **MUST** be at `src/main.py` (strict requirement for auto-discovery)
 
 **For TypeScript (Node.js):**
 *   Must use `package.json`
