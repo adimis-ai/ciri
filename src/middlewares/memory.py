@@ -41,6 +41,7 @@ class MemoryMiddleware(BaseMemoryMiddleware):
 
         # 2. Initial scan
         self._refresh_sources()
+        super().__init__(backend=backend, sources=sources)
 
     def _refresh_sources(self):
         """Discover memory sources and update self.sources."""

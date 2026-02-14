@@ -76,7 +76,7 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
             default_tools=default_tools,
             default_middleware=default_middleware,
             default_interrupt_on=default_interrupt_on,
-            subagents=self.subagents,
+            subagents=subagents,
             system_prompt=system_prompt,
             general_purpose_agent=general_purpose_agent,
             task_description=task_description,

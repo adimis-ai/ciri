@@ -41,6 +41,7 @@ class SkillsMiddleware(BaseSkillsMiddleware):
 
         # 2. Initial scan
         self._refresh_sources()
+        super().__init__(backend=backend, sources=self.sources)
 
     def _refresh_sources(self):
         """Discover skill sources and update self.sources."""
@@ -58,12 +59,6 @@ class SkillsMiddleware(BaseSkillsMiddleware):
                 seen.add(resolved_s)
 
         self.sources = final_sources
-        # Update base class sources if needed, though usually middlewares use self.sources directly
-        # But deepagents BaseSkillsMiddleware might store it differently.
-        # Checking base class implementation would be ideal, but assuming standard pattern:
-        # We initialized super() with initial sources. If base class uses self.sources, we are good.
-        # If it copies to internal storage, we might need to verify.
-        # Given memory middleware example, updating self.sources seems the way.
 
         logger.debug(
             f"Refreshed SkillsMiddleware with {len(final_sources)} sources: {final_sources}"
