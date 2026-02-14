@@ -7,8 +7,8 @@ from langchain.agents.middleware import ToolRetryMiddleware
 from ..backend import CiriBackend
 from ..prompts import PLAN_AND_RESEARCH_PROMPT
 from ..utils import get_default_filesystem_root
-from ..toolkit.web_crawler_tool import BrowserConfig
-from .web_researcher import build_web_researcher_agent
+from typing import Optional, Any, Callable
+from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..toolkit import build_script_executor_tool, follow_up_with_human
 
 SKILL_BUILDER_SYSTEM_PROMPT = (
@@ -109,11 +109,10 @@ You are the authority on skills. Build them right.
 async def build_skill_builder_agent(
     model: BaseChatModel,
     backend: CiriBackend,
-    *,
-    headless: bool | None = None,
-    browser_name: str | None = None,
-    profile_directory: str | None = None,
-    crawler_browser_config: BrowserConfig | None = None,
+    browser_name: Optional[str] = None,
+    profile_directory: Optional[str] = None,
+    headless: Optional[bool] = None,
+    crawler_browser_config: Optional[CrawlerBrowserConfig] = None,
 ) -> CompiledSubAgent:
     # Create the Web Researcher SubAgent
     web_researcher_agent = await build_web_researcher_agent(

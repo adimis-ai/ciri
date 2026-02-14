@@ -30,11 +30,18 @@ from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
 from deepagents.middleware.summarization import SummarizationMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 
-from .backend import CiriBackend
+from .utils import (
+    CiriBackend,
+    is_wsl,
+    has_display,
+    get_chrome_channel,
+    resolve_browser_profile,
+)
 from .prompts import PLAN_AND_RESEARCH_PROMPT
 from .toolkit import (
     build_script_executor_tool,
     follow_up_with_human,
+    build_crawler_browser_config,
     CrawlerBrowserConfig,
 )
 from .subagents import (
@@ -93,12 +100,35 @@ def create_copilot(
     if not subagents:
         subagents = []
 
+    # --- resolve profile & crawler config once for all subagents ---
+    profile_info = None
+    # Auto-find browser profile unless in WSL2 (which is complex to auto-map)
+    if not is_wsl() and not browser_profile_directory:
+        profile_info = resolve_browser_profile(browser_name, browser_profile_directory)
+        if profile_info:
+            browser_profile_directory = profile_info["profile_directory"]
+            browser_name = profile_info["browser"]
+
+    effective_headless = (
+        use_headless_browser
+        if use_headless_browser is not None
+        else (not has_display())
+    )
+    effective_channel = get_chrome_channel()
+
+    if not crawler_browser_config:
+        crawler_browser_config = build_crawler_browser_config(
+            profile_info=profile_info,
+            headless=effective_headless,
+            channel=effective_channel,
+        )
+
     subagents.extend(
         [
             build_web_researcher_agent(
                 model=model,
                 browser_name=browser_name,
-                headless=use_headless_browser,
+                headless=effective_headless,
                 profile_directory=browser_profile_directory,
                 crawler_browser_config=crawler_browser_config,
             ),
@@ -106,7 +136,7 @@ def create_copilot(
                 model=model,
                 backend=backend,
                 browser_name=browser_name,
-                headless=use_headless_browser,
+                headless=effective_headless,
                 profile_directory=browser_profile_directory,
                 crawler_browser_config=crawler_browser_config,
             ),
@@ -114,7 +144,7 @@ def create_copilot(
                 model=model,
                 backend=backend,
                 browser_name=browser_name,
-                headless=use_headless_browser,
+                headless=effective_headless,
                 profile_directory=browser_profile_directory,
                 crawler_browser_config=crawler_browser_config,
             ),
@@ -122,12 +152,13 @@ def create_copilot(
                 model=model,
                 backend=backend,
                 browser_name=browser_name,
-                headless=use_headless_browser,
+                headless=effective_headless,
                 profile_directory=browser_profile_directory,
                 crawler_browser_config=crawler_browser_config,
             ),
         ]
     )
+
 
     if (
         model.profile is not None

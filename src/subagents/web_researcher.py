@@ -29,10 +29,14 @@ if TYPE_CHECKING:
 
 from ..toolkit.web_crawler_tool import (
     build_web_crawler_tool,
+    build_crawler_browser_config,
     BrowserConfig as CrawlerBrowserConfig,
 )
 from ..toolkit.human_follow_up_tool import follow_up_with_human
 from ..utils import (
+    has_display,
+    get_chrome_channel,
+    resolve_browser_profile,
     detect_browser_profiles,
     copy_browser_profile,
 )
@@ -54,121 +58,6 @@ _STEALTH_ARGS: list[str] = [
     "--disable-renderer-backgrounding",
 ]
 
-
-# ---------------------------------------------------------------------------
-# Platform detection helpers
-# ---------------------------------------------------------------------------
-
-
-def _has_display() -> bool:
-    """Check whether a graphical display is available.
-
-    Returns True on Windows and macOS (always have a desktop), and on Linux
-    only when an X11 or Wayland session is active.  WSL2 without WSLg will
-    return False.
-    """
-    system = platform.system()
-    if system in ("Windows", "Darwin"):
-        return True
-    # Linux — check for X11 / Wayland environment variables
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-
-def _get_chrome_channel() -> Optional[str]:
-    """Detect the installed Chrome/Edge browser and return the Playwright
-    ``channel`` name (``"chrome"``, ``"msedge"``, or ``None``).
-
-    Playwright's ``channel`` param tells it to launch the *system-installed*
-    browser instead of its own bundled Chromium — this inherits the real
-    browser fingerprint and reduces bot-detection signals.
-    """
-    system = platform.system()
-
-    if system == "Windows":
-        candidates = [
-            (r"C:\Program Files\Google\Chrome\Application\chrome.exe", "chrome"),
-            (r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", "chrome"),
-            (r"C:\Program Files\Microsoft\Edge\Application\msedge.exe", "msedge"),
-        ]
-        for exe, channel in candidates:
-            if Path(exe).exists():
-                return channel
-
-    elif system == "Darwin":
-        if Path("/Applications/Google Chrome.app").exists():
-            return "chrome"
-        if Path("/Applications/Microsoft Edge.app").exists():
-            return "msedge"
-
-    else:  # Linux (including WSL)
-        for cmd, channel in [
-            ("google-chrome-stable", "chrome"),
-            ("google-chrome", "chrome"),
-            ("microsoft-edge-stable", "msedge"),
-            ("microsoft-edge", "msedge"),
-        ]:
-            if shutil.which(cmd):
-                return channel
-
-    return None
-
-
-def _resolve_browser_profile(
-    browser_name: Optional[str] = None,
-    profile_directory: Optional[str] = None,
-) -> Optional[dict]:
-    """Find the best matching browser profile and copy it for safe use.
-
-    Chrome v136+ locks its profile directory via CDP restrictions when the
-    main browser is running.  ``copy_browser_profile`` copies the essential
-    data to a CIRI-managed directory so we can open it without conflicts.
-
-    On WSL2, this also picks up Windows-side profiles from ``/mnt/c/``.
-
-    Returns:
-        A dict with ``user_data_dir`` (Path to the copied parent),
-        ``profile_directory`` (str), and ``browser`` (str) — or ``None``
-        when no profile is found.
-    """
-    profiles = detect_browser_profiles()
-    if not profiles:
-        logger.info("No browser profiles detected on this system")
-        return None
-
-    # Narrow down to the requested browser / profile
-    if browser_name:
-        filtered = [p for p in profiles if p["browser"] == browser_name]
-        if filtered:
-            profiles = filtered
-
-    if profile_directory:
-        filtered = [p for p in profiles if p["profile_directory"] == profile_directory]
-        if filtered:
-            profiles = filtered
-
-    if not profiles:
-        logger.warning("No matching browser profile found")
-        return None
-
-    selected = profiles[0]
-    logger.info(
-        "Using browser profile: %s (%s / %s)",
-        selected["display_name"],
-        selected["browser"],
-        selected["profile_directory"],
-    )
-
-    # Copy to a CIRI-managed directory to avoid Chrome lock conflicts
-    copied_user_data_dir = copy_browser_profile(
-        source_user_data_dir=selected["user_data_dir"],
-        profile_directory=selected["profile_directory"],
-    )
-
-    return {
-        "user_data_dir": copied_user_data_dir,
-        "profile_directory": selected["profile_directory"],
-        "browser": selected["browser"],
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -299,53 +188,6 @@ async def get_playwright_tools(
         f"Initialized Playwright browser with profile at {profile_path} with tools: {[tool.name for tool in tools]}"
     )
     return tools
-
-
-# ---------------------------------------------------------------------------
-# crawl4ai BrowserConfig builder
-# ---------------------------------------------------------------------------
-
-
-def build_crawler_browser_config(
-    profile_info: Optional[dict] = None,
-    headless: Optional[bool] = None,
-    channel: Optional[str] = None,
-) -> CrawlerBrowserConfig:
-    """Build a ``crawl4ai.BrowserConfig`` that uses the user's real browser
-    profile for anti-detection.
-
-    Key settings:
-    - ``use_persistent_context`` + ``user_data_dir`` — reuse cookies/sessions
-    - ``chrome_channel`` — launch the system-installed Chrome/Edge
-    - ``enable_stealth`` — inject playwright-stealth patches
-    - ``extra_args`` — disable automation-detection Blink features
-    """
-    if headless is None:
-        headless = not _has_display()
-
-    if channel is None:
-        channel = _get_chrome_channel() or "chromium"
-
-    kwargs: dict = {
-        "browser_type": "chromium",
-        "headless": headless,
-        "chrome_channel": channel,
-        "channel": channel,
-        "extra_args": list(_STEALTH_ARGS),
-        "enable_stealth": True,
-        "ignore_https_errors": True,
-        "viewport_width": 1920,
-        "viewport_height": 1080,
-    }
-
-    if profile_info:
-        kwargs["use_persistent_context"] = True
-        kwargs["user_data_dir"] = str(profile_info["user_data_dir"])
-        kwargs["extra_args"] = list(_STEALTH_ARGS) + [
-            f"--profile-directory={profile_info['profile_directory']}"
-        ]
-
-    return CrawlerBrowserConfig(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -637,9 +479,11 @@ async def build_web_researcher_agent(
             automatically when ``None``.
     """
     # --- resolve profile & channel once, share across both browsers ---
-    profile_info = _resolve_browser_profile(browser_name, profile_directory)
-    channel = _get_chrome_channel()
-    effective_headless = headless if headless is not None else (not _has_display())
+    # NOTE: In create_copilot, we resolve profile_info and crawler_browser_config.
+    # If they are NOT passed (e.g. direct call), we resolve them here as fallback.
+    profile_info = resolve_browser_profile(browser_name, profile_directory)
+    channel = get_chrome_channel()
+    effective_headless = headless if headless is not None else (not has_display())
 
     if effective_headless and headless is None:
         logger.info(
@@ -663,6 +507,7 @@ async def build_web_researcher_agent(
             channel=channel,
         )
     tools.append(build_web_crawler_tool(browser_config=crawler_browser_config))
+
 
     # # --- DuckDuckGo search ---
     tools.append(DuckDuckGoSearchResults(name="simple_web_search"))

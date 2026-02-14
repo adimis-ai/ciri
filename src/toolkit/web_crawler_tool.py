@@ -6,7 +6,61 @@ from langchain_core.tools import StructuredTool
 from crawl4ai.deep_crawling.bfs_strategy import BFSDeepCrawlStrategy
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode, BrowserConfig
 
+from ..utils import has_display, get_chrome_channel
+
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Anti-detection browser arguments
+# ---------------------------------------------------------------------------
+
+_STEALTH_ARGS: list[str] = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-infobars",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-popup-blocking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+]
+
+
+def build_crawler_browser_config(
+    profile_info: Optional[dict] = None,
+    headless: Optional[bool] = None,
+    channel: Optional[str] = None,
+) -> BrowserConfig:
+    """Build a ``crawl4ai.BrowserConfig`` that uses the user's real browser
+    profile for anti-detection.
+    """
+    if headless is None:
+        headless = not has_display()
+
+    if channel is None:
+        channel = get_chrome_channel() or "chromium"
+
+    kwargs: dict = {
+        "browser_type": "chromium",
+        "headless": headless,
+        "chrome_channel": channel,
+        "channel": channel,
+        "extra_args": list(_STEALTH_ARGS),
+        "enable_stealth": True,
+        "ignore_https_errors": True,
+        "viewport_width": 1920,
+        "viewport_height": 1080,
+    }
+
+    if profile_info:
+        kwargs["use_persistent_context"] = True
+        kwargs["user_data_dir"] = str(profile_info["user_data_dir"])
+        kwargs["extra_args"] = list(_STEALTH_ARGS) + [
+            f"--profile-directory={profile_info['profile_directory']}"
+        ]
+
+    return BrowserConfig(**kwargs)
+
 
 
 class WebCrawlerInput(BaseModel):

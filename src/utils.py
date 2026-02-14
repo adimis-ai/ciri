@@ -152,13 +152,62 @@ _PROFILE_COPY_IGNORE = {
 }
 
 
-def _is_wsl() -> bool:
+def is_wsl() -> bool:
     """Check if running inside WSL."""
     try:
         with open("/proc/version", "r") as f:
             return "microsoft" in f.read().lower()
     except OSError:
         return False
+
+
+def has_display() -> bool:
+    """Check whether a graphical display is available.
+
+    Returns True on Windows and macOS (always have a desktop), and on Linux
+    only when an X11 or Wayland session is active. WSL2 without WSLg will
+    return False.
+    """
+    system = platform.system()
+    if system in ("Windows", "Darwin"):
+        return True
+    # Linux — check for X11 / Wayland environment variables
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def get_chrome_channel() -> Optional[str]:
+    """Detect the installed Chrome/Edge browser and return the Playwright
+    ``channel`` name (``"chrome"``, ``"msedge"``, or ``None``).
+    """
+    system = platform.system()
+
+    if system == "Windows":
+        candidates = [
+            (r"C:\Program Files\Google\Chrome\Application\chrome.exe", "chrome"),
+            (r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", "chrome"),
+            (r"C:\Program Files\Microsoft\Edge\Application\msedge.exe", "msedge"),
+        ]
+        for exe, channel in candidates:
+            if Path(exe).exists():
+                return channel
+
+    elif system == "Darwin":
+        if Path("/Applications/Google Chrome.app").exists():
+            return "chrome"
+        if Path("/Applications/Microsoft Edge.app").exists():
+            return "msedge"
+
+    else:  # Linux (including WSL)
+        for cmd, channel in [
+            ("google-chrome-stable", "chrome"),
+            ("google-chrome", "chrome"),
+            ("microsoft-edge-stable", "msedge"),
+            ("microsoft-edge", "msedge"),
+        ]:
+            if shutil.which(cmd):
+                return channel
+
+    return None
 
 
 def _get_wsl_windows_user() -> Optional[str]:
@@ -222,7 +271,7 @@ def _get_browser_user_data_dirs() -> list[dict]:
         ]
 
         # WSL: also check Windows-side Chrome profiles via /mnt/c/
-        if _is_wsl():
+        if is_wsl():
             win_user = _get_wsl_windows_user()
             if win_user:
                 win_local = Path("/mnt/c/Users") / win_user / "AppData" / "Local"
@@ -358,3 +407,47 @@ def copy_browser_profile(
 
     logger.info("Copied browser profile to %s", target_dir)
     return target_dir
+
+
+def resolve_browser_profile(
+    browser_name: Optional[str] = None,
+    profile_directory: Optional[str] = None,
+) -> Optional[dict]:
+    """Find the best matching browser profile and copy it for safe use.
+
+    Returns:
+        A dict with ``user_data_dir`` (Path to the copied parent),
+        ``profile_directory`` (str), and ``browser`` (str) — or ``None``.
+    """
+    profiles = detect_browser_profiles()
+    if not profiles:
+        return None
+
+    # Narrow down to the requested browser / profile
+    if browser_name:
+        filtered = [p for p in profiles if p["browser"] == browser_name]
+        if filtered:
+            profiles = filtered
+
+    if profile_directory:
+        filtered = [p for p in profiles if p["profile_directory"] == profile_directory]
+        if filtered:
+            profiles = filtered
+
+    if not profiles:
+        return None
+
+    selected = profiles[0]
+
+    # Copy to a CIRI-managed directory to avoid Chrome lock conflicts
+    copied_user_data_dir = copy_browser_profile(
+        source_user_data_dir=selected["user_data_dir"],
+        profile_directory=selected["profile_directory"],
+    )
+
+    return {
+        "user_data_dir": copied_user_data_dir,
+        "profile_directory": selected["profile_directory"],
+        "browser": selected["browser"],
+    }
+
