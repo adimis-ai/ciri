@@ -392,7 +392,7 @@ These operate on a live browser page backed by the user's real profile.
 ## D. Human Follow-Up
 | #  | Tool name               | Input                                      | What it does                                                                |
 |----|-------------------------|--------------------------------------------|------------------------------------------------------------------------------|
-| 11 | `follow_up_with_human`  | `question: str`, `options: list[str]` (optional) | Pauses execution and asks the **user** a question; resumes with their answer |
+| 11 | `follow_up_with_human`  | `queries: list[dict]` | Pauses execution and asks the **user** one or more questions; resumes with their answers. Each query in the list should be a dict with `question` and optional `options` (list of strings). |
 
 # ═══════════════════════════════════════════════════════════════════════
 # 2. THINKING PROCESS  (follow this for EVERY research task)
@@ -530,12 +530,10 @@ sparingly but decisively in these scenarios:
 | **Critical decision point** | "I found conflicting information from sources A and B. Which do you trust more, or should I dig deeper?" | ["Trust A", "Trust B", "Dig deeper"] |
 
 **Rules for `follow_up_with_human`:**
-- Always provide clear, actionable `options` when possible — this makes it \
-easy for the user to respond quickly.
-- Never ask more than one question at a time.
-- After receiving the user's response, immediately act on it.
-- Do NOT call this for things you can figure out yourself — exhaust your \
-own tools first.
+- Always provide clear, actionable `options` when possible — this makes it easy for the user to respond quickly.
+- You can batch multiple questions into a single tool call when you need several pieces of information at once.
+- After receiving the user's responses, immediately act on them.
+- Do NOT call this for things you can figure out yourself — exhaust your own tools first.
 
 # ═══════════════════════════════════════════════════════════════════════
 # 6. ANTI-DETECTION & STEALTH GUIDELINES

@@ -646,23 +646,35 @@ def _render_hitl_interrupt(
 
 
 def _render_follow_up_interrupt(val: dict) -> None:
-    """Beautifully render a human_follow_up interrupt."""
-    question = val.get("question", "")
-    options = val.get("options")
+    """Beautifully render a human_follow_up interrupt with one or more queries."""
+    queries = val.get("queries", [])
+
+    if not queries:
+        # Fallback for old single-question structure
+        question = val.get("question", "")
+        options = val.get("options")
+        queries = [{"question": question, "options": options}]
 
     console.print(
         Panel(
-            f"[bold cyan]❓ Clarification Needed[/bold cyan]\n{question}",
+            "[bold cyan]❓ Clarification Needed[/bold cyan]\n"
+            f"[dim]The model has {len(queries)} question(s) for you:[/dim]",
             border_style="cyan",
             padding=(1, 2),
         )
     )
 
-    if options:
-        console.print("\n  [dim]Available options:[/dim]")
-        for i, opt in enumerate(options, 1):
-            console.print(f"    [cyan]{i}.[/cyan] {opt}")
-        console.print()
+    for i, query in enumerate(queries, 1):
+        question = query.get("question", "")
+        options = query.get("options")
+
+        prefix = f"{i}. " if len(queries) > 1 else ""
+        console.print(f"\n[bold]{prefix}{question}[/bold]")
+
+        if options:
+            console.print("  [dim]Options:[/dim]")
+            for j, opt in enumerate(options, 1):
+                console.print(f"    [cyan]{j}.[/cyan] {opt}")
 
 
 def _render_script_execution_interrupt(val: dict) -> None:
@@ -839,41 +851,54 @@ async def handle_interrupts(
 async def _handle_follow_up(
     controller: CiriController, val: dict, config: dict, completer: CiriCompleter
 ) -> None:
-    """Handle a human_follow_up interrupt with beautiful option rendering."""
-    question = val.get("question", "")
-    options = val.get("options")
-
-    # Rendering is done in handle_interrupts via _render_follow_up_interrupt
-    # This handler just collects and processes the response
-
-    if options:
-        # Get user choice
-        choice = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: pt_prompt(
-                "  [cyan]Enter option number or text[/cyan]> ", completer=completer
-            ),
-        )
-
-        # If user typed a number, resolve to the option text
-        try:
-            idx = int(choice.strip()) - 1
-            if 0 <= idx < len(options):
-                response = options[idx]
-            else:
-                console.print(
-                    "[red]Invalid option number. Using your input as-is.[/red]"
-                )
-                response = choice
-        except ValueError:
-            response = choice
+    """Handle a human_follow_up interrupt with multiple query support."""
+    queries = val.get("queries", [])
+    if not queries and "question" in val:
+        # Fallback for old single-question structure
+        queries = [{"question": val.get("question"), "options": val.get("options")}]
+        single_mode = True
     else:
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: pt_prompt("  [cyan]Your response[/cyan]> ", completer=completer),
-        )
+        single_mode = False
 
-    await run_graph(controller, Command(resume=response), config, completer)
+    responses = []
+
+    for i, query in enumerate(queries, 1):
+        question = query.get("question", "")
+        options = query.get("options")
+
+        if len(queries) > 1:
+            console.print(f"\n[bold cyan]Query {i}/{len(queries)}[/bold cyan]")
+
+        if options:
+            # Get user choice
+            choice = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: pt_prompt(
+                    "  [cyan]Enter option number or text[/cyan]> ", completer=completer
+                ),
+            )
+
+            # If user typed a number, resolve to the option text
+            try:
+                idx = int(choice.strip()) - 1
+                if 0 <= idx < len(options):
+                    response = options[idx]
+                else:
+                    console.print(
+                        "[red]  Invalid option number. Using your input as-is.[/red]"
+                    )
+                    response = choice
+            except ValueError:
+                response = choice
+        else:
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: pt_prompt("  [cyan]Your response[/cyan]> ", completer=completer),
+            )
+        responses.append(response)
+
+    resume_val = responses[0] if single_mode else responses
+    await run_graph(controller, Command(resume=resume_val), config, completer)
 
 
 async def _handle_tool_approval(
@@ -1073,30 +1098,29 @@ async def run_graph(
                             if tc_args:
                                 pending_tool_calls_by_key[key]["args_str"] += tc_args
 
-                # Complete Tool response messages
-                elif isinstance(message, ToolMessage):
-                    # Flush pending tool calls before showing tool response
-                    if pending_tool_calls_by_key:
-                        status.stop()
-                        _flush_pending_tool_calls()
-                    status.stop()
-                    render_tool_message(message)
-                    status.start()
-
                 # Human messages (echoed back in stream, rare)
                 elif isinstance(message, HumanMessage):
                     status.stop()
                     render_human_message(message)
 
-            # ----- Updates stream: node state transitions -----
             elif stream_type == "updates":
                 # Updates come as {node_name: state_update_dict}
-                # We can use these for progress indication
+                # We can use these for progress indication or direct rendering
                 if isinstance(chunk, dict):
                     for node_name, node_state in chunk.items():
                         if node_name == "__interrupt__":
                             # Interrupt arrived via updates — will be handled after loop
                             pass
+                        elif isinstance(node_state, dict) and "messages" in node_state:
+                            # Look for ToolMessages in the updates to print them directly
+                            for msg in node_state["messages"]:
+                                if isinstance(msg, ToolMessage):
+                                    if pending_tool_calls_by_key:
+                                        status.stop()
+                                        _flush_pending_tool_calls()
+                                    status.stop()
+                                    render_tool_message(msg)
+                                    status.start()
 
     # Flush any remaining pending tool calls at end of stream
     _flush_pending_tool_calls()
