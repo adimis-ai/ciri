@@ -54,7 +54,6 @@ BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of yo
 
 
 def create_copilot(
-    *,
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
@@ -72,9 +71,9 @@ def create_copilot(
     response_format: ResponseFormat | None = None,
     system_prompt: str | SystemMessage | None = None,
     subagents: list[SubAgent | CompiledSubAgent] | None = None,
-    tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
-    interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
     crawler_browser_config: Optional[CrawlerBrowserConfig] = None,
+    interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
+    tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
 ) -> CompiledStateGraph:
     if model is None:
         model = init_chat_model("openai:gpt-5-mini")
