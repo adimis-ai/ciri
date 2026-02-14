@@ -1,27 +1,15 @@
-"""TODO:
-Create an AgentMiddleware that allows the defination of toolkits in `.ciri/toolkits` directory and even in the nested directories of the root directory other that .ciri directory. Each toolkit in toolkits folder of .ciri folder should have its own directory with a pyproject.toml file and a main.py file that exposes a local MCP server using UV and FastMCP. The structure of the toolkit directory should be as follows:
+import os
+import subprocess
+import logging
+import asyncio
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Union
 
-
-```
-<root_dir>/.ciri/
-└── toolkits/
-    └── <toolkit_name>/
-        ├── README.md
-        ├── pyproject.toml
-        └── src/
-            └── main.py  # Exposes a local MCP server using UV and FastMCP
-```
-
-Ensure pyproject toml contains a fastmcp dependency and a main.py that exposes a local MCP server using UV and FastMCP so that when we call `uv run src/main.py` it starts the MCP server for this toolkit.
-
-If a toolkit server is already running:
-    - Restart only when `.ciri/toolkit/<toolkit_name>/pyproject.toml` version changes.
-    - Before starting/restarting, install & sync latest dependencies using **uv**.
-
-For all the toolkit mcp server that are running we need to get their tools using MultiServerMCPClient supporting all the connection types (StdioConnection, SSEConnection, StreamableHttpConnection, WebsocketConnection) and set them in self.tools of the ToolkitInjectorMiddleware. This way we can inject the tools from the toolkits into the agent's context and use them in the agent's execution.
-
-Ensure we are not including tool in self.tools that already exists in self.already_available_tools to avoid duplication of tools in the agent's context.
-"""
+# Use tomllib for Python 3.11+
+try:
+    import tomllib
+except ImportError:
+    import tomllib  # type: ignore
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_mcp_adapters.client import (
@@ -31,9 +19,176 @@ from langchain_mcp_adapters.client import (
     StreamableHttpConnection,
     WebsocketConnection,
 )
+from ..utils import get_default_filesystem_root
+
+logger = logging.getLogger(__name__)
 
 
 class ToolkitInjectorMiddleware(AgentMiddleware):
-    def __init__(self):
+    """
+    AgentMiddleware that discovers and injects tools from local and nested MCP toolkits.
+    
+    This middleware scans for toolkits in `.ciri/toolkits` and recursively in the project root
+    (excluding other `.ciri` directories). It manages the lifecycle of these toolkit servers,
+    restarting them if their version changes, and uses UV to sync dependencies.
+    """
+    
+    # Class-level registry to track "running" toolkits and their versions across instances
+    _toolkit_versions: Dict[str, str] = {}
+    _active_clients: Dict[str, MultiServerMCPClient] = {}
+
+    def __init__(
+        self, 
+        scan_root: Optional[Union[str, Path]] = None
+    ):
         super().__init__()
+        self.root = Path(scan_root) if scan_root else get_default_filesystem_root()
         self.tools = []
+        
+        # 1. Discover toolkit directories
+        toolkit_dirs = self._discover_toolkits(self.root)
+        
+        # 2. Manage servers (sync dependencies and handle restarts on version change)
+        self._sync_and_manage_servers(toolkit_dirs)
+        
+        # 3. Initialize tools using MultiServerMCPClient
+        self._init_mcp_tools(toolkit_dirs)
+
+    def _discover_toolkits(self, root: Path) -> List[Path]:
+        """Discover toolkits in .ciri/toolkits and recursively in project root."""
+        discovered = []
+        
+        # 1. Check all .ciri/toolkits directories
+        try:
+            for ciri_dir in root.rglob(".ciri"):
+                if ciri_dir.is_dir():
+                    toolkits_dir = ciri_dir / "toolkits"
+                    if toolkits_dir.is_dir():
+                        for tk_dir in toolkits_dir.iterdir():
+                            if tk_dir.is_dir() and (tk_dir / "pyproject.toml").exists() and (tk_dir / "src" / "main.py").exists():
+                                discovered.append(tk_dir.resolve())
+        except Exception as e:
+            logger.error(f"Error scanning for toolkits in .ciri directories: {e}")
+
+        # 2. Recursive scan excluding .ciri directories
+        try:
+            for item in root.iterdir():
+                if item.is_dir() and item.name != ".ciri":
+                    discovered.extend(self._recursive_toolkit_discovery(item))
+        except Exception as e:
+            logger.error(f"Error during recursive toolkit discovery: {e}")
+            
+        # De-duplicate by path
+        unique_toolkits = {str(p): p for p in discovered}
+        return list(unique_toolkits.values())
+
+    def _recursive_toolkit_discovery(self, path: Path) -> List[Path]:
+        """Recursively find toolkits, skipping .ciri directories."""
+        toolkits = []
+        try:
+            # Check if this directory is a toolkit
+            if (path / "pyproject.toml").exists() and (path / "src" / "main.py").exists():
+                if self._is_mcp_toolkit(path):
+                    toolkits.append(path.resolve())
+            
+            # Recurse into subdirectories
+            for item in path.iterdir():
+                if item.is_dir() and item.name != ".ciri":
+                    toolkits.extend(self._recursive_toolkit_discovery(item))
+        except (PermissionError, Exception):
+            pass
+        return toolkits
+
+    def _is_mcp_toolkit(self, path: Path) -> bool:
+        """Check if a project is an MCP toolkit by looking for fastmcp in requirements."""
+        try:
+            with open(path / "pyproject.toml", "rb") as f:
+                data = tomllib.load(f)
+                deps = data.get("project", {}).get("dependencies", [])
+                return any("fastmcp" in dep.lower() for dep in deps)
+        except Exception:
+            return False
+
+    def _sync_and_manage_servers(self, toolkit_dirs: List[Path]):
+        """Ensure dependencies are synced and track version changes for restarts."""
+        for tk_dir in toolkit_dirs:
+            tk_path = str(tk_dir)
+            try:
+                with open(tk_dir / "pyproject.toml", "rb") as f:
+                    data = tomllib.load(f)
+                    version = data.get("project", {}).get("version", "0.1.0")
+                
+                # Check if we need to sync/restart
+                if tk_path not in self._toolkit_versions or self._toolkit_versions[tk_path] != version:
+                    logger.info(f"Toolkit {tk_dir.name} version changed or new (v{version}). Syncing...")
+                    
+                    # Install & sync dependencies
+                    subprocess.run(["uv", "sync"], cwd=tk_dir, check=True, capture_output=True)
+                    
+                    # Update version tracking
+                    self._toolkit_versions[tk_path] = version
+            except Exception as e:
+                logger.error(f"Failed to manage toolkit server {tk_dir}: {e}")
+
+    def _init_mcp_tools(self, toolkit_dirs: List[Path]):
+        """Initialize MultiServerMCPClient and fetch tools from discovered toolkits."""
+        if not toolkit_dirs:
+            return
+
+        connections = {
+            tk_dir.name: {
+                "command": "uv",
+                "args": ["run", "src/main.py"],
+                "cwd": str(tk_dir),
+                "transport": "stdio"
+            }
+            for tk_dir in toolkit_dirs
+        }
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self._async_fetch_tools(connections))
+            else:
+                loop.run_until_complete(self._async_fetch_tools(connections))
+        except Exception as e:
+            logger.error(f"Failed to initialize MCP tools: {e}")
+
+    async def _async_fetch_tools(self, connections: Dict[str, Any]):
+        """Async helper to connect and fetch tools."""
+        try:
+            client = MultiServerMCPClient(connections=connections)
+            # Fetch tools from all connected servers
+            all_tools = await client.get_tools()
+            
+            # Ensure unique tool names in self.tools
+            unique_tools = {}
+            for t in all_tools:
+                if t.name not in unique_tools:
+                    unique_tools[t.name] = t
+                else:
+                    logger.warning(f"Duplicate tool name '{t.name}' found. Skipping.")
+            
+            self.tools = list(unique_tools.values())
+            logger.info(f"ToolkitInjector: Successfully injected {len(self.tools)} tools")
+        except Exception as e:
+            logger.error(f"Error fetching tools from MultiServerMCPClient: {e}")
+
+    async def awrap_model_call(self, request, handler):
+        """Inject toolkit tools into the model call request (async)."""
+        self._inject_tools(request)
+        return await handler(request)
+
+    def wrap_model_call(self, request, handler):
+        """Inject toolkit tools into the model call request (sync)."""
+        self._inject_tools(request)
+        return handler(request)
+
+    def _inject_tools(self, request: Any):
+        """Helper to inject discovered tools into the request."""
+        if self.tools:
+            request_tool_names = {t.name for t in request.tools}
+            for tool in self.tools:
+                if tool.name not in request_tool_names:
+                    request.tools.append(tool)
+                    request_tool_names.add(tool.name)

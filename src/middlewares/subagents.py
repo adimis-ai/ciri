@@ -26,7 +26,9 @@ class SubAgent(BaseModel):
         ..., description="System prompt to guide the sub-agent's behavior"
     )
     model: Optional[str] = Field(
-        None, description="Model to use for this sub-agent (overrides default)"
+        None,
+        description="Model to use for this sub-agent (overrides default)",
+        examples=["openai:gpt-5-mini", "deepseek:deepseek-chat", "google:gemini-2.0-flash"],
     )
     interrupt_on: Optional[dict[str, Any]] = Field(
         None, description="Configuration for interrupting the sub-agent's execution"
