@@ -1,26 +1,191 @@
 import json
 import logging
 import pickle
-from typing import Any, Dict, List, Optional, Union, Sequence, Callable, Literal
-from datetime import datetime, date
 from pathlib import Path
+from datetime import datetime, date
+from typing_extensions import NotRequired, TypedDict
+from typing import Any, Dict, Optional, Union, Sequence, Literal, Tuple, Mapping
 
-from pydantic import BaseModel
 from langchain_core.load import dumpd, loads
+from pydantic import BaseModel, Field, ConfigDict
 from langchain_core.messages import AnyMessage, BaseMessage
 from langgraph.types import StateSnapshot
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
-from .copilot import (
-    CiriState,
-    ResumeCommand,
-    InterruptValue,
-    ApprovalDecisions,
-    EditDecisions,
-    RejectDecisions,
-)
-
 logger = logging.getLogger(__name__)
+
+class LLMConfig(BaseModel):
+    """Configuration for language models."""
+
+    model: str = Field(
+        description="The language model to use, e.g. 'openai/gpt-5-mini' or 'openai:gpt-4'."
+    )
+    model_kwargs: Dict[str, Any] = Field(default_factory=dict)
+
+    @cached_property
+    def _parsed_model(self) -> Tuple[str | None, str]:
+        if ":" in self.model:  # langchain direct provider:model
+            return tuple(self.model.split(":", 1))
+        if "/" in self.model:  # openrouter provider/model
+            return tuple(self.model.split("/", 1))
+        return None, self.model
+
+    @cached_property
+    def _is_openrouter(self) -> bool:
+        # provider/model AND provider not explicitly specified via provider:model
+        return "/" in self.model and ":" not in self.model
+
+    @cached_property
+    def _resolved_api_config(self) -> Dict[str, Any]:
+        """
+        Resolve API config once and cache.
+        Avoid repeated env access + dict copies.
+        """
+        config = dict(self.model_kwargs)  # single copy
+
+        # Fast path if api_key already provided
+        if "api_key" in config:
+            if self._is_openrouter and "base_url" not in config:
+                config["base_url"] = os.getenv(
+                    "OPENROUTER_API_BASE_URL", DEFAULT_OPENROUTER_BASE_URL
+                )
+            return config
+
+        provider, _ = self._parsed_model
+
+        if self._is_openrouter:
+            config.setdefault(
+                "base_url",
+                os.getenv("OPENROUTER_API_BASE_URL", DEFAULT_OPENROUTER_BASE_URL),
+            )
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                raise ValueError("OPENROUTER_API_KEY env variable not set.")
+            config["api_key"] = api_key
+            return config
+
+        # Direct provider key lookup
+        if not provider:
+            raise ValueError(f"Provider missing in model: {self.model}")
+
+        env_key = f"{provider.upper()}_API_KEY"
+        api_key = os.getenv(env_key)
+        if not api_key:
+            raise ValueError(f"{env_key} env variable not set for {self.model}")
+
+        config["api_key"] = api_key
+        return config
+
+    def init_langchain_model(self) -> BaseChatModel:
+        """
+        Initialize LangChain chat model.
+        Zero redundant env reads or parsing.
+        """
+        provider, model_name = self._parsed_model
+        config = self._resolved_api_config
+
+        if self._is_openrouter:
+            # avoid dict rebuild via pop-free filtering
+            base_url = config.get("base_url")
+            api_key = config["api_key"]
+
+            extra = {
+                k: v for k, v in config.items() if k not in ("api_key", "base_url")
+            }
+
+            return init_chat_model(
+                model=model_name,
+                model_provider="openai",
+                base_url=base_url,
+                api_key=api_key,
+                **extra,
+            )
+
+        return init_chat_model(model=self.model, **config)
+
+
+class ShellToolConfig(BaseModel):
+    """Configuration for shell tool middleware."""
+
+    env: Optional[Mapping[str, Any]] = None
+    shell_command: Optional[Union[Sequence[str], str]] = None
+    startup_commands: Optional[Union[tuple, list, str]] = None
+    shutdown_commands: Optional[Union[tuple, list, str]] = None
+    redaction_rules: tuple[RedactionRule, ...] | list[RedactionRule] | None = None
+
+
+class SerializableSubAgent(BaseModel):
+    """Serializable configuration for subagents."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    name: str
+    description: str
+    system_prompt: str
+    use_parent_mcp_tools: bool = True
+    include_follow_up_with_human_tool: bool = True
+    include_shell_tool_middleware: bool = True
+    llm_config: Optional[LLMConfig] = None
+    interrupt_on: Optional[Dict[str, Any]] = (
+        None  # Union[bool, InterruptOnConfig] - Any used for Pydantic compatibility
+    )
+    shell_tool_config: Optional[ShellToolConfig] = None
+    mcp_connections: Optional[Dict[str, Any]] = None
+
+
+class ActionRequest(TypedDict):
+    name: str
+    description: str
+    arguments: NotRequired[dict[str, Any]]
+
+
+class ReviewConfig(TypedDict):
+    action_name: str
+    allowed_decisions: list[Literal["approve", "edit", "reject"]]
+
+
+class HumanInTheLoopInterrupt(TypedDict):
+    review_configs: list[ReviewConfig]
+    action_requests: list[ActionRequest]
+
+
+class InterruptValue(TypedDict):
+    value: Union[HumanInTheLoopInterrupt, FollowUpInterruptValue]
+
+
+class ApprovalDecision(TypedDict):
+    type: Literal["approve"]
+
+
+class EditedAction(TypedDict):
+    name: str
+    args: dict[str, Any]
+
+
+class EditDecision(TypedDict):
+    type: Literal["edit"]
+    edited_action: EditedAction
+
+
+class RejectDecision(TypedDict):
+    type: Literal["reject"]
+    message: NotRequired[str]
+
+
+class ApprovalDecisions(TypedDict):
+    decisions: list[ApprovalDecision]
+
+
+class EditDecisions(TypedDict):
+    decisions: list[EditDecision]
+
+
+class RejectDecisions(TypedDict):
+    decisions: list[RejectDecision]
+
+
+class ResumeCommand(TypedDict):
+    resume: Union[ApprovalDecisions, EditDecisions, RejectDecisions]
 
 
 class CiriJsonPlusSerializer(JsonPlusSerializer):
@@ -565,16 +730,6 @@ class CiriSerializer:
 
 
 # Convenience functions for direct use
-def serialize_ciri_state(state: CiriState) -> Dict[str, Any]:
-    """Serialize CiriState to JSON-compatible dict."""
-    return CiriSerializer.serialize_ciri_state(state)
-
-
-def deserialize_ciri_state(data: Dict[str, Any]) -> CiriState:
-    """Deserialize dict back to CiriState."""
-    return CiriSerializer.deserialize_ciri_state(data)
-
-
 def serialize_any_message(message: AnyMessage) -> Dict[str, Any]:
     """Serialize a LangChain message to JSON-compatible dict."""
     return CiriSerializer.serialize_any_message(message)
@@ -613,7 +768,7 @@ class CiriJSONEncoder(json.JSONEncoder):
         try:
             # Handle CiriState
             if hasattr(obj, "__class__") and "CiriState" in str(type(obj)):
-                return serialize_ciri_state(obj)
+                return CiriSerializer.serialize_ciri_state(obj)
 
             # Handle AnyMessage (LangChain messages)
             if isinstance(obj, BaseMessage):
