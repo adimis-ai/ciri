@@ -62,7 +62,7 @@ SPECIALIZED TOOLS
     *   **WHEN NOT TO USE**:
         *   Simple file I/O (use filesystem tools).
         *   Basic scratchpad math.
-        *   Running the main application code (use `run_command`).
+        *   Running the main application code (use `execute` tool).
 
 PHASE 1 — TASK NORMALIZATION
 Restate the request as a precise objective. Extract required outputs,
