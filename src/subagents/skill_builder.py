@@ -9,6 +9,7 @@ from ..prompts import PLAN_AND_RESEARCH_PROMPT
 from ..utils import get_default_filesystem_root
 from ..toolkit.web_crawler_tool import BrowserConfig
 from .web_researcher import build_web_researcher_agent
+from ..toolkit import build_script_executor_tool, follow_up_with_human
 
 SKILL_BUILDER_SYSTEM_PROMPT = (
     """You are the **Lead Skill Engineer** for the Ciri agent. Your purpose is to extend the agent's capabilities by creating high-quality, reusable **Skills** that encapsulate specialized knowledge and workflows.
@@ -137,6 +138,7 @@ async def build_skill_builder_agent(
         name="skill_builder_agent",
         subagents=[web_researcher_agent],
         system_prompt=SKILL_BUILDER_SYSTEM_PROMPT,
+        tools=[build_script_executor_tool(), follow_up_with_human],
         skills=[skill_creator_path] if skill_creator_path.exists() else [],
         middleware=[
             ToolRetryMiddleware(
