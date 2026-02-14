@@ -146,7 +146,8 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
         discovered = []
         try:
             for ciri_dir in root.rglob(".ciri"):
-                if ciri_dir.is_dir():
+                # Ensure we are not inside another .ciri folder
+                if ciri_dir.is_dir() and not any(p.name == ".ciri" for p in ciri_dir.parents if p != root):
                     subagents_dir = ciri_dir / "subagents"
                     if subagents_dir.is_dir():
                         for ext in ["*.yaml", "*.yml", "*.json"]:

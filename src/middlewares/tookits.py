@@ -61,7 +61,8 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
         # 1. Check all .ciri/toolkits directories
         try:
             for ciri_dir in root.rglob(".ciri"):
-                if ciri_dir.is_dir():
+                # Ensure we are not inside another .ciri folder
+                if ciri_dir.is_dir() and not any(p.name == ".ciri" for p in ciri_dir.parents if p != root):
                     toolkits_dir = ciri_dir / "toolkits"
                     if toolkits_dir.is_dir():
                         for tk_dir in toolkits_dir.iterdir():

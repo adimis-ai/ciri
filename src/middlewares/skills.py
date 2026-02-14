@@ -62,7 +62,8 @@ class SkillsMiddleware(BaseSkillsMiddleware):
         try:
             # Recursive search for all .ciri folders
             for ciri_dir in root.rglob(".ciri"):
-                if ciri_dir.is_dir():
+                # Ensure we are not inside another .ciri folder
+                if ciri_dir.is_dir() and not any(p.name == ".ciri" for p in ciri_dir.parents if p != root):
                     skills_dir = ciri_dir / "skills"
                     if skills_dir.is_dir():
                         discovered.append(str(skills_dir.resolve()))
