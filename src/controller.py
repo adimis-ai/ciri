@@ -92,7 +92,7 @@ class CiriController:
         self,
         config: RunnableConfig,
         filter: Optional[Dict[str, Any]] = None,
-        before: Optional[str] = None,
+        before: Optional[RunnableConfig] = None,
         limit: Optional[int] = None,
         serialize: bool = False,
     ) -> AsyncGenerator[Union[StateSnapshot, Dict[str, Any]], None]:
