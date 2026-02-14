@@ -1,7 +1,7 @@
 """Deepagents come with planning, filesystem, and subagents."""
 
+from typing import Any, Optional
 from collections.abc import Callable, Sequence
-from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -20,8 +20,8 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
-from langchain_core.language_models import BaseChatModel
 from langchain.agents.structured_output import ResponseFormat
+from langchain.chat_models import BaseChatModel, init_chat_model
 from langchain.agents.middleware import AgentMiddleware, ToolRetryMiddleware
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 
@@ -32,6 +32,18 @@ from deepagents.middleware.summarization import SummarizationMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 
 from .backend import CiriBackend
+from .prompts import PLAN_AND_RESEARCH_PROMPT
+from .toolkit import (
+    build_script_executor_tool,
+    follow_up_with_human,
+    CrawlerBrowserConfig,
+)
+from .subagents import (
+    build_skill_builder_agent,
+    build_web_researcher_agent,
+    build_toolkit_builder_agent,
+    build_subagent_builder_agent,
+)
 from .middlewares import (
     SkillsMiddleware,
     MemoryMiddleware,
@@ -43,8 +55,6 @@ BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of yo
 
 
 def create_copilot(
-    model: BaseChatModel,
-    backend: CiriBackend,
     *,
     debug: bool = False,
     name: str | None = None,
@@ -52,21 +62,72 @@ def create_copilot(
     store: BaseStore | None = None,
     skills: list[str] | None = None,
     memory: list[str] | None = None,
+    browser_name: Optional[str] = None,
+    model: BaseChatModel | None = None,
+    backend: CiriBackend | None = None,
+    profile_directory: Optional[str] = None,
     context_schema: type[Any] | None = None,
     checkpointer: Checkpointer | None = None,
     middleware: Sequence[AgentMiddleware] = (),
+    use_headless_browser: Optional[bool] = None,
     response_format: ResponseFormat | None = None,
     system_prompt: str | SystemMessage | None = None,
     subagents: list[SubAgent | CompiledSubAgent] | None = None,
     tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
+    crawler_browser_config: Optional[CrawlerBrowserConfig] = None,
 ) -> CompiledStateGraph:
+    if not model:
+        model = init_chat_model("openai:gpt-5-mini")
+
     if not checkpointer:
         checkpointer = InMemorySaver()
     if not store:
         store = InMemoryStore()
     if not cache:
         cache = InMemoryCache()
+
+    if not backend:
+        backend = CiriBackend()
+
+    if not subagents:
+        subagents = []
+
+    subagents.extend(
+        [
+            build_web_researcher_agent(
+                model=model,
+                browser_name=browser_name,
+                headless=use_headless_browser,
+                profile_directory=profile_directory,
+                crawler_browser_config=crawler_browser_config,
+            ),
+            build_skill_builder_agent(
+                model=model,
+                backend=backend,
+                browser_name=browser_name,
+                headless=use_headless_browser,
+                profile_directory=profile_directory,
+                crawler_browser_config=crawler_browser_config,
+            ),
+            build_toolkit_builder_agent(
+                model=model,
+                backend=backend,
+                browser_name=browser_name,
+                headless=use_headless_browser,
+                profile_directory=profile_directory,
+                crawler_browser_config=crawler_browser_config,
+            ),
+            build_subagent_builder_agent(
+                model=model,
+                backend=backend,
+                browser_name=browser_name,
+                headless=use_headless_browser,
+                profile_directory=profile_directory,
+                crawler_browser_config=crawler_browser_config,
+            ),
+        ]
+    )
 
     if model is None:
         raise ValueError("Model must be provided")
@@ -198,14 +259,18 @@ def create_copilot(
 
     return create_agent(
         model,
-        system_prompt=final_system_prompt,
-        tools=tools,
-        middleware=copilot_middleware,
-        response_format=response_format,
-        context_schema=context_schema,
-        checkpointer=checkpointer,
+        name=name,
         store=store,
         debug=debug,
-        name=name,
         cache=cache,
+        checkpointer=checkpointer,
+        middleware=copilot_middleware,
+        context_schema=context_schema,
+        response_format=response_format,
+        system_prompt=final_system_prompt,
+        tools=(
+            tools + [build_script_executor_tool(), follow_up_with_human]
+            if tools
+            else [build_script_executor_tool(), follow_up_with_human]
+        ),
     ).with_config({"recursion_limit": 1000})
