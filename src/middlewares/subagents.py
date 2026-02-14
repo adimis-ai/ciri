@@ -6,7 +6,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from langchain.agents.middleware import InterruptOnConfig
 from typing import List, Optional, Dict, Any, Literal, Union
-from deepagents.middleware import SubAgentMiddleware as BaseSubAgentMiddleware, SubAgent as DeepAgentSubAgent
+from deepagents.middleware import (
+    SubAgentMiddleware as BaseSubAgentMiddleware,
+    SubAgent as DeepAgentSubAgent,
+)
 from ..utils import get_default_filesystem_root
 
 logger = logging.getLogger(__name__)
@@ -93,8 +96,15 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
                         tools=sub_agent_config.tools,
                     )
                 )
-                logger.info(f"Loaded subagent '{sub_agent_config.name}' from {file_path}")
-            except (ValidationError, ValueError, json.JSONDecodeError, yaml.YAMLError) as e:
+                logger.info(
+                    f"Loaded subagent '{sub_agent_config.name}' from {file_path}"
+                )
+            except (
+                ValidationError,
+                ValueError,
+                json.JSONDecodeError,
+                yaml.YAMLError,
+            ) as e:
                 logger.error(f"Failed to load subagent from {file_path}: {e}")
                 raise  # Re-raise to alert user of misconfiguration
 
