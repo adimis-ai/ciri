@@ -1,4 +1,5 @@
 import tomllib
+import json
 import logging
 import asyncio
 import subprocess
@@ -93,12 +94,12 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                     toolkits_dir = ciri_dir / "toolkits"
                     if toolkits_dir.is_dir():
                         for tk_dir in toolkits_dir.iterdir():
-                            if (
-                                tk_dir.is_dir()
-                                and (tk_dir / "pyproject.toml").exists()
-                                and (tk_dir / "src" / "main.py").exists()
+                            if tk_dir.is_dir() and (
+                                (tk_dir / "pyproject.toml").exists()
+                                or (tk_dir / "package.json").exists()
                             ):
-                                discovered.append(tk_dir.resolve())
+                                if self._is_mcp_toolkit(tk_dir):
+                                    discovered.append(tk_dir.resolve())
         except Exception as e:
             logger.error(f"Error scanning for toolkits in .ciri directories: {e}")
 
@@ -119,9 +120,7 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
         toolkits = []
         try:
             # Check if this directory is a toolkit
-            if (path / "pyproject.toml").exists() and (
-                path / "src" / "main.py"
-            ).exists():
+            if (path / "pyproject.toml").exists() or (path / "package.json").exists():
                 if self._is_mcp_toolkit(path):
                     toolkits.append(path.resolve())
 
@@ -134,23 +133,55 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
         return toolkits
 
     def _is_mcp_toolkit(self, path: Path) -> bool:
-        """Check if a project is an MCP toolkit by looking for fastmcp in requirements."""
-        try:
-            with open(path / "pyproject.toml", "rb") as f:
-                data = tomllib.load(f)
-                deps = data.get("project", {}).get("dependencies", [])
-                return any("fastmcp" in dep.lower() for dep in deps)
-        except Exception:
-            return False
+        """Check if a project is an MCP toolkit (Python or TypeScript)."""
+        # Check Python (FastMCP)
+        if (path / "pyproject.toml").exists():
+            try:
+                with open(path / "pyproject.toml", "rb") as f:
+                    data = tomllib.load(f)
+                    deps = data.get("project", {}).get("dependencies", [])
+                    if any("fastmcp" in dep.lower() for dep in deps):
+                        # Verify structure
+                        if (path / "src" / "main.py").exists():
+                            return True
+            except Exception:
+                pass
+
+        # Check TypeScript (MCP SDK)
+        if (path / "package.json").exists():
+            try:
+                with open(path / "package.json", "r") as f:
+                    data = json.load(f)
+                    deps = data.get("dependencies", {})
+                    if "@modelcontextprotocol/sdk" in deps:
+                         # Verify structure or blindly accept?
+                         # Let's check for src/index.ts or dist/index.js as common patterns
+                         # But user might configure main differently.
+                         # Just checking dependency is safest for now,
+                         # assuming build process handles the rest.
+                        return True
+            except Exception:
+                pass
+        
+        return False
 
     def _sync_and_manage_servers(self, toolkit_dirs: List[Path]):
         """Ensure dependencies are synced and track version changes for restarts."""
         for tk_dir in toolkit_dirs:
             tk_path = str(tk_dir)
             try:
-                with open(tk_dir / "pyproject.toml", "rb") as f:
-                    data = tomllib.load(f)
-                    version = data.get("project", {}).get("version", "0.1.0")
+                version = "0.0.0"
+                is_python = (tk_dir / "pyproject.toml").exists()
+                
+                if is_python:
+                    with open(tk_dir / "pyproject.toml", "rb") as f:
+                        data = tomllib.load(f)
+                        version = data.get("project", {}).get("version", "0.1.0")
+                else:
+                     # TypeScript
+                     with open(tk_dir / "package.json", "r") as f:
+                        data = json.load(f)
+                        version = data.get("version", "0.1.0")
 
                 # Check if we need to sync/restart
                 if (
@@ -161,10 +192,23 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                         f"Toolkit {tk_dir.name} version changed or new (v{version}). Syncing..."
                     )
 
-                    # Install & sync dependencies
-                    subprocess.run(
-                        ["uv", "sync"], cwd=tk_dir, check=True, capture_output=True
-                    )
+                    if is_python:
+                        # Install & sync dependencies
+                        subprocess.run(
+                            ["uv", "sync"], cwd=tk_dir, check=True, capture_output=True
+                        )
+                    else:
+                        # TypeScript: npm install && npm run build
+                        # We use 'npm ci' if package-lock.json exists for clean install, else 'npm install'
+                        cmd = ["npm", "ci"] if (tk_dir / "package-lock.json").exists() else ["npm", "install"]
+                        subprocess.run(cmd, cwd=tk_dir, check=True, capture_output=True)
+                        
+                        # Build if script exists
+                        # Check package.json for build script
+                        with open(tk_dir / "package.json", "r") as f:
+                            pkg_data = json.load(f)
+                            if "build" in pkg_data.get("scripts", {}):
+                                subprocess.run(["npm", "run", "build"], cwd=tk_dir, check=True, capture_output=True)
 
                     # Update version tracking
                     self._toolkit_versions[tk_path] = version
@@ -176,15 +220,38 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
         if not toolkit_dirs:
             return
 
-        connections = {
-            tk_dir.name: {
-                "command": "uv",
-                "args": ["run", "src/main.py"],
-                "cwd": str(tk_dir),
-                "transport": "stdio",
-            }
-            for tk_dir in toolkit_dirs
-        }
+        connections = {}
+        for tk_dir in toolkit_dirs:
+            if (tk_dir / "pyproject.toml").exists() and (tk_dir / "src" / "main.py").exists():
+                 # Python / FastMCP
+                 connections[tk_dir.name] = {
+                    "command": "uv",
+                    "args": ["run", "src/main.py"],
+                    "cwd": str(tk_dir),
+                    "transport": "stdio",
+                }
+            elif (tk_dir / "package.json").exists():
+                # TypeScript / Node
+                # Try to determine entry point from package.json
+                entry_point = "dist/index.js" # default
+                try:
+                    with open(tk_dir / "package.json", "r") as f:
+                        data = json.load(f)
+                        # If 'main' is specified, use it (or its built equivalent)
+                        # Standard convention in these toolkits: build -> dist/index.js
+                        # If user specifies "main": "src/index.ts", we should assume build output is referenced?
+                        # Or typically "main": "dist/index.js"
+                        if "main" in data:
+                             entry_point = data["main"]
+                except Exception:
+                    pass
+                
+                connections[tk_dir.name] = {
+                    "command": "node",
+                    "args": [entry_point],
+                    "cwd": str(tk_dir),
+                    "transport": "stdio",
+                }
 
         try:
             loop = asyncio.get_event_loop()

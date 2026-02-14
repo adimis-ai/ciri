@@ -54,7 +54,7 @@ class SkillsMiddleware(BaseSkillsMiddleware):
         Copy default skills from system location to project's .ciri/skills
         if they don't already exist.
         """
-        default_skills_source = Path("/home/adimis/workspace/ciri/ciri-cli-v1/skills/skills")
+        default_skills_source = Path(__file__).parent.parent / "skills"
         
         # Only proceed if source skills exist
         if not default_skills_source.exists():
