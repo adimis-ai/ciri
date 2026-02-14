@@ -8,7 +8,7 @@ from .db import CiriDatabase
 from .serializers import CiriSerializer
 
 
-class CiriController:
+class CopilotController:
     """
     Controller for CIRI that handles graph execution and thread management.
     Separates the core logic from the user interface.

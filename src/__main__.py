@@ -25,12 +25,15 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
 
 # LangGraph / LangChain imports
+from langgraph.types import Command
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.store.memory import InMemoryStore
 from langchain_core.messages import (
     HumanMessage,
     AIMessage,
     BaseMessageChunk,
     ToolMessage,
 )
-from langgraph.types import Command
+
+# Copilot
+from .copilot import create_copilot
+from .controller import CopilotController
