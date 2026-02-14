@@ -28,7 +28,11 @@ class SubAgent(BaseModel):
     model: Optional[str] = Field(
         None,
         description="Model to use for this sub-agent (overrides default)",
-        examples=["openai:gpt-5-mini", "deepseek:deepseek-chat", "google:gemini-2.0-flash"],
+        examples=[
+            "openai:gpt-5-mini",
+            "deepseek:deepseek-chat",
+            "google:gemini-2.0-flash",
+        ],
     )
     interrupt_on: Optional[dict[str, Any]] = Field(
         None, description="Configuration for interrupting the sub-agent's execution"
@@ -60,18 +64,40 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
             if not isinstance(subagents, list):
                 subagents = [subagents]
 
-        # 1. Determine scan root
-        root = Path(scan_root) if scan_root else get_default_filesystem_root()
-        logger.debug(f"Scanning for subagents in: {root}")
+        # 1. Store configuration for dynamic scanning
+        self.root = Path(scan_root) if scan_root else get_default_filesystem_root()
+        self.explicit_subagents = subagents
+        self.default_tools_config = default_tools
+        logger.debug(f"Scanning for subagents in: {self.root}")
 
-        # 2. Discover subagent files
-        subagent_files = self._discover_subagent_files(root)
+        # 2. Initial scan and load
+        self._refresh_subagents()
 
-        # 3. Load and validate subagents
+        super().__init__(
+            default_model=default_model,
+            default_tools=default_tools,
+            default_middleware=default_middleware,
+            default_interrupt_on=default_interrupt_on,
+            # We'll set subagents in _refresh_subagents, but need to pass something here
+            # to satisfy base init if it uses it immediately. 
+            # However, we can just pass the initial list and update self.subagents later.
+            subagents=self.subagents,
+            system_prompt=system_prompt,
+            general_purpose_agent=general_purpose_agent,
+            task_description=task_description,
+        )
+        self.all_available_tools = set()
+
+    def _refresh_subagents(self):
+        """Discover, load, and update subagents."""
+        # Discover subagent files
+        subagent_files = self._discover_subagent_files(self.root)
+
+        # Load and validate subagents
         discovered_subagents = []
         available_tool_names = set()
-        if default_tools:
-            available_tool_names = {t.name for t in default_tools}
+        if self.default_tools_config:
+            available_tool_names = {t.name for t in self.default_tools_config}
 
         for file_path in subagent_files:
             try:
@@ -83,10 +109,12 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
                 if sub_agent_config.tools and sub_agent_config.tools != "all":
                     for tool_name in sub_agent_config.tools:
                         if tool_name not in available_tool_names:
-                            raise ValueError(
+                            logger.warning(
                                 f"Tool '{tool_name}' defined for subagent '{sub_agent_config.name}' "
                                 f"in {file_path} but not found in available tools list."
                             )
+                            # We might not want to raise here during refresh as it could crash a running agent
+                            # Instead, just log warning.
 
                 discovered_subagents.append(
                     DeepAgentSubAgent(
@@ -98,48 +126,31 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
                         tools=sub_agent_config.tools,
                     )
                 )
-                logger.info(
-                    f"Loaded subagent '{sub_agent_config.name}' from {file_path}"
-                )
-            except (
-                ValidationError,
-                ValueError,
-                json.JSONDecodeError,
-                yaml.YAMLError,
-            ) as e:
+            except Exception as e:
                 logger.error(f"Failed to load subagent from {file_path}: {e}")
-                raise  # Re-raise to alert user of misconfiguration
+                # Continue with other files
 
-        # 4. Merge subagents: Explicitly passed first, then discovered
-        final_subagents = list(subagents)
+        # Merge subagents: Explicitly passed first, then discovered
+        final_subagents = list(self.explicit_subagents)
         seen_names = set()
-        for s in subagents:
+        for s in self.explicit_subagents:
             if isinstance(s, dict):
                 seen_names.add(s["name"])
             else:
                 seen_names.add(s.name)
 
         for ds in discovered_subagents:
-            if ds["name"] not in seen_names:
+            ds_name = ds["name"] if isinstance(ds, dict) else ds.name
+            if ds_name not in seen_names:
                 final_subagents.append(ds)
-                seen_names.add(ds["name"])
+                seen_names.add(ds_name)
             else:
-                logger.warning(
-                    f"Subagent '{ds['name']}' (discovered) skipped as it's already defined."
-                )
+                # Discovered subagents with same name as explicit ones are skipped
+                pass
 
+        self.subagents = final_subagents
         self._subagents_input = final_subagents
-        super().__init__(
-            default_model=default_model,
-            default_tools=default_tools,
-            default_middleware=default_middleware,
-            default_interrupt_on=default_interrupt_on,
-            subagents=final_subagents,
-            system_prompt=system_prompt,
-            general_purpose_agent=general_purpose_agent,
-            task_description=task_description,
-        )
-        self.all_available_tools = set()
+        logger.debug(f"Refreshed SubAgentMiddleware with {len(final_subagents)} subagents")
 
     def _discover_subagent_files(self, root: Path) -> List[Path]:
         """Recursively find all .ciri/subagents/*.{yaml,yml,json} files."""
@@ -147,7 +158,9 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
         try:
             for ciri_dir in root.rglob(".ciri"):
                 # Ensure we are not inside another .ciri folder
-                if ciri_dir.is_dir() and not any(p.name == ".ciri" for p in ciri_dir.parents if p != root):
+                if ciri_dir.is_dir() and not any(
+                    p.name == ".ciri" for p in ciri_dir.parents if p != root
+                ):
                     subagents_dir = ciri_dir / "subagents"
                     if subagents_dir.is_dir():
                         for ext in ["*.yaml", "*.yml", "*.json"]:
@@ -166,9 +179,38 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
             else:
                 raise ValueError(f"Unsupported file extension: {path.suffix}")
 
+                raise ValueError(f"Unsupported file extension: {path.suffix}")
+
+    async def awrap_model_call(self, request, handler):
+        self._refresh_subagents()
+        return await self._wrap_model_call_common(request, handler, is_async=True)
+
     def wrap_model_call(self, request, handler):
+        self._refresh_subagents()
+        return self._wrap_model_call_common(request, handler, is_async=False)
+
+    def _wrap_model_call_common(self, request, handler, is_async=False):
+        # We should call super().wrap_model_call but we need to ensure self.subagents is updated first
+        
+        # The base class uses self.subagents.
+        # We updated self.subagents in _refresh_subagents.
+        
+        # We also need to update all_available_tools logic from the original wrap_model_call
         available_tools = set()
-        for tool in request.tools:
-            available_tools.add(tool.name)
+        if request.tools:
+            for tool in request.tools:
+                available_tools.add(tool.name)
         self.all_available_tools.update(available_tools)
-        return super().wrap_model_call(request, handler)
+        
+        if is_async:
+            return super().awrap_model_call(request, handler)
+        else:
+            return super().wrap_model_call(request, handler)
+
+    async def awrap_tool_call(self, request, handler):
+        self._refresh_subagents()
+        return await super().awrap_tool_call(request, handler)
+
+    def wrap_tool_call(self, request, handler):
+        self._refresh_subagents()
+        return super().wrap_tool_call(request, handler)

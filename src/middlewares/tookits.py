@@ -1,24 +1,13 @@
-import os
-import subprocess
+import tomllib
 import logging
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 
-# Use tomllib for Python 3.11+
-try:
-    import tomllib
-except ImportError:
-    import tomllib  # type: ignore
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_mcp_adapters.client import (
-    MultiServerMCPClient,
-    StdioConnection,
-    SSEConnection,
-    StreamableHttpConnection,
-    WebsocketConnection,
-)
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from ..utils import get_default_filesystem_root
 
 logger = logging.getLogger(__name__)
@@ -27,46 +16,88 @@ logger = logging.getLogger(__name__)
 class ToolkitInjectorMiddleware(AgentMiddleware):
     """
     AgentMiddleware that discovers and injects tools from local and nested MCP toolkits.
-    
+
     This middleware scans for toolkits in `.ciri/toolkits` and recursively in the project root
     (excluding other `.ciri` directories). It manages the lifecycle of these toolkit servers,
     restarting them if their version changes, and uses UV to sync dependencies.
     """
-    
+
     # Class-level registry to track "running" toolkits and their versions across instances
     _toolkit_versions: Dict[str, str] = {}
     _active_clients: Dict[str, MultiServerMCPClient] = {}
 
-    def __init__(
-        self, 
-        scan_root: Optional[Union[str, Path]] = None
-    ):
+    def __init__(self, scan_root: Optional[Union[str, Path]] = None):
         super().__init__()
         self.root = Path(scan_root) if scan_root else get_default_filesystem_root()
         self.tools = []
         
-        # 1. Discover toolkit directories
-        toolkit_dirs = self._discover_toolkits(self.root)
-        
-        # 2. Manage servers (sync dependencies and handle restarts on version change)
-        self._sync_and_manage_servers(toolkit_dirs)
-        
-        # 3. Initialize tools using MultiServerMCPClient
-        self._init_mcp_tools(toolkit_dirs)
+        # Track state to avoid unnecessary refreshes
+        self._last_toolkit_state = set()
+
+        # Initial scan and load
+        self._refresh_tools()
+
+    def _refresh_tools(self):
+        """Discover and load tools if toolkits have changed."""
+        try:
+            # 1. Discover toolkit directories
+            toolkit_dirs = self._discover_toolkits(self.root)
+            
+            # 2. Check current state (paths + versions) to see if update is needed
+            current_state = set()
+            for tk_dir in toolkit_dirs:
+                try:
+                    # We read version to detect updates
+                    with open(tk_dir / "pyproject.toml", "rb") as f:
+                        data = tomllib.load(f)
+                        version = data.get("project", {}).get("version", "0.1.0")
+                    current_state.add((str(tk_dir.resolve()), version))
+                except Exception:
+                    # If we can't read version, include path but maybe mark as unknown version?
+                    # Or just skip optimization for this one.
+                    current_state.add((str(tk_dir.resolve()), "unknown"))
+            
+            if current_state == self._last_toolkit_state:
+                logger.debug("Toolkits unchanged, skipping refresh.")
+                return
+
+            logger.info("Toolkits changed or updated. Refreshing tools...")
+
+            # 3. Manage servers (sync dependencies and handle restarts on version change)
+            # Note: _sync_and_manage_servers also reads pyproject.toml and manages versions
+            # We could optimize by passing the versions we just read, but for now reuse existing method.
+            self._sync_and_manage_servers(toolkit_dirs)
+            
+            # 4. Initialize tools using MultiServerMCPClient
+            # synchronous wrapper for async init if event loop is not running?
+            # Existing code for _init_mcp_tools handles loop check.
+            self._init_mcp_tools(toolkit_dirs)
+            
+            # Update state only after successful init
+            self._last_toolkit_state = current_state
+            
+        except Exception as e:
+            logger.error(f"Error refreshing toolkits: {e}")
 
     def _discover_toolkits(self, root: Path) -> List[Path]:
         """Discover toolkits in .ciri/toolkits and recursively in project root."""
         discovered = []
-        
+
         # 1. Check all .ciri/toolkits directories
         try:
             for ciri_dir in root.rglob(".ciri"):
                 # Ensure we are not inside another .ciri folder
-                if ciri_dir.is_dir() and not any(p.name == ".ciri" for p in ciri_dir.parents if p != root):
+                if ciri_dir.is_dir() and not any(
+                    p.name == ".ciri" for p in ciri_dir.parents if p != root
+                ):
                     toolkits_dir = ciri_dir / "toolkits"
                     if toolkits_dir.is_dir():
                         for tk_dir in toolkits_dir.iterdir():
-                            if tk_dir.is_dir() and (tk_dir / "pyproject.toml").exists() and (tk_dir / "src" / "main.py").exists():
+                            if (
+                                tk_dir.is_dir()
+                                and (tk_dir / "pyproject.toml").exists()
+                                and (tk_dir / "src" / "main.py").exists()
+                            ):
                                 discovered.append(tk_dir.resolve())
         except Exception as e:
             logger.error(f"Error scanning for toolkits in .ciri directories: {e}")
@@ -78,7 +109,7 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                     discovered.extend(self._recursive_toolkit_discovery(item))
         except Exception as e:
             logger.error(f"Error during recursive toolkit discovery: {e}")
-            
+
         # De-duplicate by path
         unique_toolkits = {str(p): p for p in discovered}
         return list(unique_toolkits.values())
@@ -88,10 +119,12 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
         toolkits = []
         try:
             # Check if this directory is a toolkit
-            if (path / "pyproject.toml").exists() and (path / "src" / "main.py").exists():
+            if (path / "pyproject.toml").exists() and (
+                path / "src" / "main.py"
+            ).exists():
                 if self._is_mcp_toolkit(path):
                     toolkits.append(path.resolve())
-            
+
             # Recurse into subdirectories
             for item in path.iterdir():
                 if item.is_dir() and item.name != ".ciri":
@@ -118,14 +151,21 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                 with open(tk_dir / "pyproject.toml", "rb") as f:
                     data = tomllib.load(f)
                     version = data.get("project", {}).get("version", "0.1.0")
-                
+
                 # Check if we need to sync/restart
-                if tk_path not in self._toolkit_versions or self._toolkit_versions[tk_path] != version:
-                    logger.info(f"Toolkit {tk_dir.name} version changed or new (v{version}). Syncing...")
-                    
+                if (
+                    tk_path not in self._toolkit_versions
+                    or self._toolkit_versions[tk_path] != version
+                ):
+                    logger.info(
+                        f"Toolkit {tk_dir.name} version changed or new (v{version}). Syncing..."
+                    )
+
                     # Install & sync dependencies
-                    subprocess.run(["uv", "sync"], cwd=tk_dir, check=True, capture_output=True)
-                    
+                    subprocess.run(
+                        ["uv", "sync"], cwd=tk_dir, check=True, capture_output=True
+                    )
+
                     # Update version tracking
                     self._toolkit_versions[tk_path] = version
             except Exception as e:
@@ -141,7 +181,7 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                 "command": "uv",
                 "args": ["run", "src/main.py"],
                 "cwd": str(tk_dir),
-                "transport": "stdio"
+                "transport": "stdio",
             }
             for tk_dir in toolkit_dirs
         }
@@ -161,7 +201,7 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
             client = MultiServerMCPClient(connections=connections)
             # Fetch tools from all connected servers
             all_tools = await client.get_tools()
-            
+
             # Ensure unique tool names in self.tools
             unique_tools = {}
             for t in all_tools:
@@ -169,19 +209,23 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                     unique_tools[t.name] = t
                 else:
                     logger.warning(f"Duplicate tool name '{t.name}' found. Skipping.")
-            
+
             self.tools = list(unique_tools.values())
-            logger.info(f"ToolkitInjector: Successfully injected {len(self.tools)} tools")
+            logger.info(
+                f"ToolkitInjector: Successfully injected {len(self.tools)} tools"
+            )
         except Exception as e:
             logger.error(f"Error fetching tools from MultiServerMCPClient: {e}")
 
     async def awrap_model_call(self, request, handler):
         """Inject toolkit tools into the model call request (async)."""
+        self._refresh_tools()
         self._inject_tools(request)
         return await handler(request)
 
     def wrap_model_call(self, request, handler):
         """Inject toolkit tools into the model call request (sync)."""
+        self._refresh_tools()
         self._inject_tools(request)
         return handler(request)
 
@@ -193,3 +237,15 @@ class ToolkitInjectorMiddleware(AgentMiddleware):
                 if tool.name not in request_tool_names:
                     request.tools.append(tool)
                     request_tool_names.add(tool.name)
+
+    def wrap_tool_call(self, request, handler):
+        """Inject toolkit tools into the tool call request."""
+        self._refresh_tools()
+        self._inject_tools(request)
+        return super().wrap_tool_call(request, handler)
+    
+    async def awrap_tool_call(self, request, handler):
+        """Inject toolkit tools into the tool call request (async)."""
+        self._refresh_tools()
+        self._inject_tools(request)
+        return await super().awrap_tool_call(request, handler)
