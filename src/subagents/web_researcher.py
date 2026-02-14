@@ -10,6 +10,7 @@ from pydantic import Field, BaseModel
 from deepagents import CompiledSubAgent
 from langchain.agents import create_agent
 from langchain_core.tools import BaseTool
+from langgraph.cache.memory import InMemoryCache
 from langchain_core.language_models import BaseChatModel
 from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
 from langchain_community.tools import DuckDuckGoSearchResults
@@ -672,6 +673,7 @@ async def build_web_researcher_agent(
     agent = create_agent(
         model=model,
         tools=tools,
+        cache=InMemoryCache(),
         name="Web Researcher Agent",
         system_prompt=WEB_RESEARCHER_SYSTEM_PROMPT,
         middleware=[

@@ -1,6 +1,4 @@
-# Skill Builder SubAgent: DeepAgent using Web Research SubAgent to build/manage skills in `<root_dir>/.ciri/skills`
-
-from langchain_core.tools import tool
+from langgraph.cache.memory import InMemoryCache
 from deepagents.backends import FilesystemBackend
 from langchain_core.language_models import BaseChatModel
 from deepagents import create_deep_agent, CompiledSubAgent
@@ -90,9 +88,9 @@ async def build_skill_builder_agent(
     model: BaseChatModel,
     backend: FilesystemBackend,
     *,
+    headless: bool | None = None,
     browser_name: str | None = None,
     profile_directory: str | None = None,
-    headless: bool | None = None,
     crawler_browser_config: BrowserConfig | None = None,
 ) -> CompiledSubAgent:
     # Initialize the skill manager with the backend
@@ -109,15 +107,16 @@ async def build_skill_builder_agent(
 
     # Define the Skill Builder SubAgent with skill management tools
     skill_builder_agent = create_deep_agent(
-        name="skill_builder_agent",
+        model=model,
         backend=backend,
-        subagents=[web_researcher_agent],
+        name="skill_builder_agent",
         tools=SKILL_MANAGEMENT_TOOLS,
+        subagents=[web_researcher_agent],
         system_prompt=SKILL_BUILDER_SYSTEM_PROMPT,
     )
 
     return CompiledSubAgent(
         name="skill_builder_agent",
-        description="A SubAgent that builds new and manages existing skills in the .ciri/skills directory using the Web Researcher SubAgent for research and information gathering.",
         runnable=skill_builder_agent,
+        description="A SubAgent that builds new and manages existing skills in the .ciri/skills directory using the Web Researcher SubAgent for research and information gathering.",
     )
