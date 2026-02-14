@@ -1,18 +1,17 @@
-from pathlib import Path
+from langgraph.errors import GraphInterrupt
 from langgraph.cache.memory import InMemoryCache
-from deepagents.backends import FilesystemBackend
 from langchain_core.language_models import BaseChatModel
 from deepagents import create_deep_agent, CompiledSubAgent
-from deepagents.backends.sandbox import SandboxBackendProtocol
-
+from langchain.agents.middleware import ToolRetryMiddleware
 
 from ..backend import CiriBackend
+from ..prompts import PLAN_AND_RESEARCH_PROMPT
 from ..utils import get_default_filesystem_root
 from ..toolkit.web_crawler_tool import BrowserConfig
 from .web_researcher import build_web_researcher_agent
-from ..prompts.plan_and_research import PLAN_AND_RESEARCH_PROMPT
 
-SKILL_BUILDER_SYSTEM_PROMPT = """You are the **Lead Skill Engineer** for the Ciri agent. Your purpose is to extend the agent's capabilities by creating high-quality, reusable **Skills** that encapsulate specialized knowledge and workflows.
+SKILL_BUILDER_SYSTEM_PROMPT = (
+    """You are the **Lead Skill Engineer** for the Ciri agent. Your purpose is to extend the agent's capabilities by creating high-quality, reusable **Skills** that encapsulate specialized knowledge and workflows.
 
 ## Core Philosophy: Progressive Disclosure
 You strictly adhere to the **Progressive Disclosure** design principle to manage context window efficiency:
@@ -100,8 +99,10 @@ description: Manipulate PDF files. Use when asked to "rotate", "merge", "split",
 ```
 
 You are the authority on skills. Build them right.
-""" + "\n\n" + PLAN_AND_RESEARCH_PROMPT
-
+"""
+    + "\n\n"
+    + PLAN_AND_RESEARCH_PROMPT
+)
 
 
 async def build_skill_builder_agent(
@@ -132,10 +133,22 @@ async def build_skill_builder_agent(
     skill_builder_agent = create_deep_agent(
         model=model,
         backend=backend,
+        cache=InMemoryCache(),
         name="skill_builder_agent",
         subagents=[web_researcher_agent],
         system_prompt=SKILL_BUILDER_SYSTEM_PROMPT,
         skills=[skill_creator_path] if skill_creator_path.exists() else [],
+        middleware=[
+            ToolRetryMiddleware(
+                max_retries=2,
+                retry_on=lambda exc: not isinstance(exc, GraphInterrupt),
+                on_failure="continue",
+                backoff_factor=2.0,
+                initial_delay=1.0,
+                max_delay=10.0,
+                jitter=True,
+            ),
+        ],
     )
 
     return CompiledSubAgent(

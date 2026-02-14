@@ -1,7 +1,7 @@
-
 import pytest
 import asyncio
 from src.backend import CiriBackend
+
 
 @pytest.mark.asyncio
 async def test_backend_execution_sync():
@@ -11,6 +11,7 @@ async def test_backend_execution_sync():
     assert result.exit_code == 0
     assert "hello world" in result.output.strip()
 
+
 @pytest.mark.asyncio
 async def test_backend_execution_async():
     backend = CiriBackend()
@@ -18,6 +19,7 @@ async def test_backend_execution_async():
     result = await backend.aexecute("echo 'hello async'")
     assert result.exit_code == 0
     assert "hello async" in result.output.strip()
+
 
 @pytest.mark.asyncio
 async def test_backend_execution_error():

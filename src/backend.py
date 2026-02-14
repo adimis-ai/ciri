@@ -1,11 +1,9 @@
-
 import subprocess
 import asyncio
 from deepagents.backends import FilesystemBackend
 from deepagents.backends.sandbox import SandboxBackendProtocol, ExecuteResponse
 
 from .utils import get_default_filesystem_root
-
 
 
 class CiriBackend(SandboxBackendProtocol, FilesystemBackend):
@@ -27,18 +25,16 @@ class CiriBackend(SandboxBackendProtocol, FilesystemBackend):
                 cwd=self.cwd,
                 capture_output=True,
                 text=True,
-                check=False
+                check=False,
             )
             return ExecuteResponse(
                 output=process.stdout + process.stderr,
                 exit_code=process.returncode,
-                truncated=False
+                truncated=False,
             )
         except Exception as e:
             return ExecuteResponse(
-                output=f"Error executing command: {e}",
-                exit_code=1,
-                truncated=False
+                output=f"Error executing command: {e}", exit_code=1, truncated=False
             )
 
     async def aexecute(self, command: str) -> ExecuteResponse:
@@ -47,18 +43,14 @@ class CiriBackend(SandboxBackendProtocol, FilesystemBackend):
                 command,
                 cwd=self.cwd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await process.communicate()
             output = stdout.decode() + stderr.decode()
             return ExecuteResponse(
-                output=output,
-                exit_code=process.returncode,
-                truncated=False
+                output=output, exit_code=process.returncode, truncated=False
             )
         except Exception as e:
             return ExecuteResponse(
-                output=f"Error executing command: {e}",
-                exit_code=1,
-                truncated=False
+                output=f"Error executing command: {e}", exit_code=1, truncated=False
             )

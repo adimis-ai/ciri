@@ -674,7 +674,7 @@ async def build_web_researcher_agent(
         model=model,
         tools=tools,
         cache=InMemoryCache(),
-        name="Web Researcher Agent",
+        name="web_research_agent",
         system_prompt=WEB_RESEARCHER_SYSTEM_PROMPT,
         middleware=[
             TodoListMiddleware(),
@@ -693,7 +693,7 @@ async def build_web_researcher_agent(
 
     return CompiledSubAgent(
         runnable=agent,
-        name="Web Researcher",
+        name="web_research_agent",
         description=(
             "A sub-agent for in-depth web research using the user's real "
             "browser profile to bypass bot detection.  Can search the web, "
