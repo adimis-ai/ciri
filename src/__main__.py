@@ -1,13 +1,10 @@
 import os
 import sys
 import json
-import uuid
 import httpx
 import asyncio
-import aiosqlite
-import subprocess
 import argparse
-from pathlib import Path
+import aiosqlite
 from typing import Optional, List, Any, Dict, Union
 
 # Third-party imports
@@ -25,10 +22,10 @@ from rich import box
 
 # prompt_toolkit for input
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.completion import Completer, Completion
 
 # LangGraph / LangChain imports
 from langgraph.types import Command, Interrupt
@@ -37,8 +34,6 @@ from langchain_core.messages import (
     HumanMessage,
     AIMessage,
     AIMessageChunk,
-    BaseMessage,
-    BaseMessageChunk,
     ToolMessage,
     SystemMessage,
 )
@@ -765,6 +760,17 @@ class CopilotCLI:
         args = tool_call.get("args", {})
         tc_id = tool_call.get("id", "")
 
+        # Custom rendering for specific tools
+        if name == "write_todos":
+            CopilotCLI._render_todo_list(args)
+            return
+        if name == "task":
+            CopilotCLI._render_task_call(args)
+            return
+        if name in CopilotCLI._FILESYSTEM_TOOLS:
+            CopilotCLI._render_filesystem_tool_call(name, args)
+            return
+
         args_text = json.dumps(args, indent=2, default=str) if args else "{}"
         syntax = Syntax(
             args_text, "json", theme="monokai", line_numbers=False, word_wrap=True
@@ -783,10 +789,318 @@ class CopilotCLI:
         )
 
     @staticmethod
-    def _render_tool_message(msg: ToolMessage):
-        """Render a ToolMessage (tool response) in a Panel box."""
+    def _render_todo_list(args: dict):
+        """Render a write_todos tool call as a formatted checklist."""
+        todos = args.get("todos", [])
+        if not todos:
+            return
+
+        lines = []
+        for item in todos:
+            content = item.get("content", "")
+            status = item.get("status", "pending")
+            if status == "in_progress":
+                indicator = "[bold cyan]◉[/]"
+            elif status == "completed":
+                indicator = "[bold green]✓[/]"
+            else:
+                indicator = "[dim]○[/]"
+            lines.append(f"  {indicator} {content}")
+
+        body = "\n".join(lines)
+        console.print()
+        console.print(
+            Panel(
+                body,
+                title=" [bold cyan]📋 Task List[/] ",
+                title_align="left",
+                border_style="cyan",
+                padding=(0, 1),
+                box=box.ROUNDED,
+            )
+        )
+
+    @staticmethod
+    def _render_task_call(args: dict):
+        """Render a task (subagent) tool call as a friendly delegation message."""
+        subagent_type = args.get("subagent_type", "agent")
+        description = args.get("description", "")
+        # Truncate long descriptions
+        if len(description) > 120:
+            description = description[:117] + "..."
+
+        console.print()
+        console.print(
+            f"  [bold bright_magenta]🤖 Delegating to[/] [bold]{subagent_type}[/][bold bright_magenta]:[/] {description}"
+        )
+
+    # Filesystem tool names for dispatch
+    _FILESYSTEM_TOOLS = {
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "glob",
+        "grep",
+        "execute",
+    }
+
+    # Map file extensions to Rich Syntax lexer names
+    _EXT_TO_LEXER = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".jsx": "jsx",
+        ".json": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".toml": "toml",
+        ".md": "markdown",
+        ".html": "html",
+        ".css": "css",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".rs": "rust",
+        ".go": "go",
+        ".java": "java",
+        ".c": "c",
+        ".cpp": "cpp",
+        ".h": "c",
+        ".hpp": "cpp",
+        ".rb": "ruby",
+        ".sql": "sql",
+        ".xml": "xml",
+        ".ini": "ini",
+        ".cfg": "ini",
+        ".txt": "text",
+        ".csv": "text",
+        ".lock": "text",
+    }
+
+    @staticmethod
+    def _render_filesystem_tool_call(name: str, args: dict):
+        """Render a filesystem tool call with a friendly, compact format."""
+        console.print()
+
+        if name == "ls":
+            path = args.get("path", "/")
+            console.print(f"  [bold yellow]📂 Listing[/] [dim]{path}[/]")
+
+        elif name == "read_file":
+            fpath = args.get("file_path", "")
+            offset = args.get("offset", 0)
+            limit = args.get("limit", 100)
+            loc = f" [dim](lines {offset + 1}–{offset + limit})[/]" if offset else ""
+            console.print(f"  [bold yellow]📄 Reading[/] [dim]{fpath}[/]{loc}")
+
+        elif name == "write_file":
+            fpath = args.get("file_path", "")
+            content = args.get("content", "")
+            lines = content.count("\n") + 1 if content else 0
+            console.print(
+                f"  [bold yellow]📝 Creating[/] [dim]{fpath}[/] [dim]({lines} lines)[/]"
+            )
+
+        elif name == "edit_file":
+            fpath = args.get("file_path", "")
+            old_s = args.get("old_string", "")
+            new_s = args.get("new_string", "")
+            replace_all = args.get("replace_all", False)
+            suffix = " [dim](all occurrences)[/]" if replace_all else ""
+
+            # Build a compact diff view
+            diff_lines = []
+            for line in old_s.splitlines():
+                diff_lines.append(f"[red]- {line}[/]")
+            for line in new_s.splitlines():
+                diff_lines.append(f"[green]+ {line}[/]")
+            # Cap diff preview at 12 lines
+            if len(diff_lines) > 12:
+                diff_lines = diff_lines[:10] + [
+                    f"[dim]  ... ({len(diff_lines) - 10} more lines)[/]"
+                ]
+            diff_body = "\n".join(diff_lines)
+
+            console.print(
+                Panel(
+                    diff_body,
+                    title=f" [bold yellow]✏️  Editing[/] [dim]{fpath}[/]{suffix} ",
+                    title_align="left",
+                    border_style="yellow",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+
+        elif name == "glob":
+            pattern = args.get("pattern", "")
+            path = args.get("path", "")
+            in_path = f" in [dim]{path}[/]" if path and path != "/" else ""
+            console.print(
+                f"  [bold yellow]🔍 Finding files[/] [bold]{pattern}[/]{in_path}"
+            )
+
+        elif name == "grep":
+            pattern = args.get("pattern", "")
+            path = args.get("path", "")
+            glob_filter = args.get("glob", "")
+            mode = args.get("output_mode", "files_with_matches")
+            parts = [f'  [bold yellow]🔎 Searching[/] [bold]"{pattern}"[/]']
+            if path:
+                parts.append(f"in [dim]{path}[/]")
+            if glob_filter:
+                parts.append(f"[dim]({glob_filter})[/]")
+            if mode != "files_with_matches":
+                parts.append(f"[dim][{mode}][/]")
+            console.print(" ".join(parts))
+
+        elif name == "execute":
+            command = args.get("command", "")
+            console.print(
+                Panel(
+                    f"[bold]$ {command}[/]",
+                    title=" [bold yellow]⚡ Execute[/] ",
+                    title_align="left",
+                    border_style="yellow",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+
+    @staticmethod
+    def _render_filesystem_tool_response(msg: ToolMessage):
+        """Render a filesystem tool response with appropriate formatting."""
         content = msg.content if isinstance(msg.content, str) else str(msg.content)
         tool_name = getattr(msg, "name", None) or ""
+
+        # Truncate very long outputs
+        max_len = 5000
+        truncated = False
+        if len(content) > max_len:
+            content = content[:max_len]
+            truncated = True
+
+        console.print()
+
+        if tool_name == "read_file":
+            # Detect language from the tool_call context or content
+            # Try to guess file extension from first line if it looks like a path reference
+            lexer = "text"
+            # The content has line numbers like "     1\t..." - still render in a panel
+            # but with monospace styling
+            display = content
+            if truncated:
+                display += f"\n[dim]... (truncated)[/]"
+            console.print(
+                Panel(
+                    Syntax(
+                        display,
+                        lexer,
+                        theme="monokai",
+                        line_numbers=False,
+                        word_wrap=True,
+                    ),
+                    title=f" [bold bright_green]📄 File Content[/] ",
+                    title_align="left",
+                    border_style="green",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+
+        elif tool_name == "execute":
+            display = content
+            if truncated:
+                display += f"\n... (truncated)"
+            console.print(
+                Panel(
+                    Syntax(
+                        display,
+                        "bash",
+                        theme="monokai",
+                        line_numbers=False,
+                        word_wrap=True,
+                    ),
+                    title=" [bold bright_green]⚡ Output[/] ",
+                    title_align="left",
+                    border_style="green",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+
+        elif tool_name in ("write_file", "edit_file"):
+            # These return short success/error messages
+            # Render as a compact status line
+            if (
+                "error" in content.lower()
+                or "cannot" in content.lower()
+                or "not found" in content.lower()
+            ):
+                console.print(f"  [bold red]✗[/] {content}")
+            else:
+                console.print(f"  [bold green]✓[/] {content}")
+
+        elif tool_name in ("ls", "glob"):
+            # File listing - show as compact list
+            lines = content.strip().splitlines()
+            if truncated:
+                lines.append(f"... (truncated)")
+            display = "\n".join(lines)
+            console.print(
+                Panel(
+                    display,
+                    title=f" [bold bright_green]📂 {'Files' if tool_name == 'glob' else 'Directory'}[/] [dim]({len(lines)} items)[/] ",
+                    title_align="left",
+                    border_style="green",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+
+        elif tool_name == "grep":
+            lines = content.strip().splitlines()
+            if truncated:
+                lines.append("... (truncated)")
+            display = "\n".join(lines)
+            console.print(
+                Panel(
+                    display,
+                    title=f" [bold bright_green]🔎 Search Results[/] [dim]({len(lines)} matches)[/] ",
+                    title_align="left",
+                    border_style="green",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+
+        else:
+            # Fallback for unknown filesystem tools
+            if truncated:
+                content += f"\n[dim]... (truncated)[/]"
+            console.print(
+                Panel(
+                    content,
+                    title=f" [bold bright_green]Tool Response[/] [bold]{tool_name}[/] ",
+                    title_align="left",
+                    border_style="bright_green",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+
+    @staticmethod
+    def _render_tool_message(msg: ToolMessage):
+        """Render a ToolMessage (tool response) in a Panel box."""
+        tool_name = getattr(msg, "name", None) or ""
+
+        # Dispatch filesystem tools to custom renderer
+        if tool_name in CopilotCLI._FILESYSTEM_TOOLS:
+            CopilotCLI._render_filesystem_tool_response(msg)
+            return
+
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
         tc_id = getattr(msg, "tool_call_id", "") or ""
 
         # Truncate very long outputs
@@ -894,6 +1208,25 @@ class CopilotCLI:
 
         console.print(Rule("[dim]Conversation History[/]", style="dim cyan"))
 
+        # Pre-pass: find the last write_todos tool call ID so we only render it once
+        last_todo_tc_id = None
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                for tc in getattr(msg, "tool_calls", []):
+                    if tc.get("name") == "write_todos":
+                        last_todo_tc_id = tc.get("id")
+
+        # Collect all write_todos tool call IDs that should be suppressed
+        suppressed_todo_tc_ids = set()
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                for tc in getattr(msg, "tool_calls", []):
+                    if (
+                        tc.get("name") == "write_todos"
+                        and tc.get("id") != last_todo_tc_id
+                    ):
+                        suppressed_todo_tc_ids.add(tc.get("id"))
+
         for msg in messages:
             if isinstance(msg, HumanMessage):
                 self._render_human_message(msg)
@@ -903,13 +1236,27 @@ class CopilotCLI:
                 console.print("[bold cyan]CIRI >[/]")
                 self._render_ai_complete(msg.content)
 
-                # Also render tool calls if any (skip follow_up_with_human)
+                # Also render tool calls if any (skip follow_up_with_human and old write_todos)
                 for tc in getattr(msg, "tool_calls", []):
-                    if tc.get("name") != "follow_up_with_human":
-                        self._render_tool_call(tc)
+                    tc_name = tc.get("name")
+                    if tc_name == "follow_up_with_human":
+                        continue
+                    if (
+                        tc_name == "write_todos"
+                        and tc.get("id") in suppressed_todo_tc_ids
+                    ):
+                        continue
+                    self._render_tool_call(tc)
             elif isinstance(msg, ToolMessage):
-                if getattr(msg, "name", None) != "follow_up_with_human":
-                    self._render_tool_message(msg)
+                tool_name = getattr(msg, "name", None)
+                # Suppress responses for: follow_up_with_human, write_todos, task
+                if tool_name in ("follow_up_with_human", "write_todos", "task"):
+                    continue
+                # Also suppress responses for old (deduplicated) write_todos calls
+                tc_id = getattr(msg, "tool_call_id", None)
+                if tc_id in suppressed_todo_tc_ids:
+                    continue
+                self._render_tool_message(msg)
             elif isinstance(msg, SystemMessage):
                 self._render_system_message(msg)
 
@@ -1290,8 +1637,13 @@ class CopilotCLI:
                                             if tc.get("name") != "follow_up_with_human":
                                                 self._render_tool_call(tc)
                                     elif isinstance(msg, ToolMessage):
-                                        # Skip follow_up_with_human responses (handled via interrupt UI)
-                                        if getattr(msg, "name", None) != "follow_up_with_human":
+                                        # Skip responses for tools with custom rendering or interrupt UI
+                                        tool_name = getattr(msg, "name", None)
+                                        if tool_name not in (
+                                            "follow_up_with_human",
+                                            "write_todos",
+                                            "task",
+                                        ):
                                             self._render_tool_message(msg)
                                     elif isinstance(msg, SystemMessage):
                                         self._render_system_message(msg)
@@ -1419,7 +1771,9 @@ class CopilotCLI:
 
 def main():
     """Entry point for the CIRI CLI."""
-    parser = argparse.ArgumentParser(description="CIRI - Contextual Intelligence and Reasoning Interface")
+    parser = argparse.ArgumentParser(
+        description="CIRI - Contextual Intelligence and Reasoning Interface"
+    )
     parser.add_argument(
         "--all-allowed",
         action="store_true",
