@@ -18,6 +18,9 @@ from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import (
     TodoListMiddleware,
     ToolRetryMiddleware,
+)
+from .._retry_helpers import graphinterrupt_aware_failure
+from langchain.agents.middleware import (
     SummarizationMiddleware,
     HumanInTheLoopMiddleware,
 )
@@ -533,7 +536,7 @@ async def build_web_researcher_agent(
         ToolRetryMiddleware(
             max_retries=2,
             retry_on=lambda exc: not isinstance(exc, GraphInterrupt),
-            on_failure="continue",
+            on_failure=graphinterrupt_aware_failure,
             backoff_factor=2.0,
             initial_delay=1.0,
             max_delay=10.0,

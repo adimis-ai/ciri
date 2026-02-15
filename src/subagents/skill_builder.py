@@ -4,6 +4,7 @@ from langchain_core.language_models import BaseChatModel
 from deepagents import create_deep_agent, CompiledSubAgent
 from langchain.agents.middleware import ToolRetryMiddleware
 
+from .._retry_helpers import graphinterrupt_aware_failure
 from ..backend import CiriBackend
 from ..prompts import PLAN_AND_RESEARCH_PROMPT
 from ..utils import get_default_filesystem_root
@@ -156,7 +157,7 @@ async def build_skill_builder_agent(
             ToolRetryMiddleware(
                 max_retries=2,
                 retry_on=lambda exc: not isinstance(exc, GraphInterrupt),
-                on_failure="continue",
+                on_failure=graphinterrupt_aware_failure,
                 backoff_factor=2.0,
                 initial_delay=1.0,
                 max_delay=10.0,

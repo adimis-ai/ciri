@@ -900,11 +900,13 @@ class CopilotCLI:
                 console.print("[bold cyan]CIRI >[/]")
                 self._render_ai_complete(msg.content)
 
-                # Also render tool calls if any
+                # Also render tool calls if any (skip follow_up_with_human)
                 for tc in getattr(msg, "tool_calls", []):
-                    self._render_tool_call(tc)
+                    if tc.get("name") != "follow_up_with_human":
+                        self._render_tool_call(tc)
             elif isinstance(msg, ToolMessage):
-                self._render_tool_message(msg)
+                if getattr(msg, "name", None) != "follow_up_with_human":
+                    self._render_tool_message(msg)
             elif isinstance(msg, SystemMessage):
                 self._render_system_message(msg)
 
@@ -1280,10 +1282,14 @@ class CopilotCLI:
                                         msg, AIMessageChunk
                                     ):
                                         # Full AI message from updates - render tool_calls only
+                                        # Skip follow_up_with_human (handled via interrupt UI)
                                         for tc in getattr(msg, "tool_calls", []):
-                                            self._render_tool_call(tc)
+                                            if tc.get("name") != "follow_up_with_human":
+                                                self._render_tool_call(tc)
                                     elif isinstance(msg, ToolMessage):
-                                        self._render_tool_message(msg)
+                                        # Skip follow_up_with_human responses (handled via interrupt UI)
+                                        if getattr(msg, "name", None) != "follow_up_with_human":
+                                            self._render_tool_message(msg)
                                     elif isinstance(msg, SystemMessage):
                                         self._render_system_message(msg)
 
