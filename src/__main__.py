@@ -84,7 +84,7 @@ COMMANDS_HELP = {
     "/exit": "Exit CIRI",
 }
 
-DEFAULT_MODEL = "openai/gpt-oss-120b:free"
+DEFAULT_MODEL = "deepseek/deepseek-v3.2"
 
 console = Console()
 
