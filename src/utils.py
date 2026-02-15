@@ -35,9 +35,15 @@ def save_settings(settings: dict):
     """Save settings to the project-local settings.json file."""
     path = get_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _default(obj):
+        if isinstance(obj, Path):
+            return str(obj)
+        raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
     try:
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=4)
+            json.dump(settings, f, indent=4, default=_default)
     except OSError as e:
         logger.error(f"Failed to save settings to {path}: {e}")
 
