@@ -760,6 +760,7 @@ class CopilotCLI:
                 box=box.ROUNDED,
             )
         )
+        console.print()
 
     @staticmethod
     def _render_tool_call(tool_call: dict):
@@ -771,29 +772,27 @@ class CopilotCLI:
         # Custom rendering for specific tools
         if name == "write_todos":
             CopilotCLI._render_todo_list(args)
-            return
-        if name == "task":
+        elif name == "task":
             CopilotCLI._render_task_call(args)
-            return
-        if name in CopilotCLI._FILESYSTEM_TOOLS:
+        elif name in CopilotCLI._FILESYSTEM_TOOLS:
             CopilotCLI._render_filesystem_tool_call(name, args)
-            return
-
-        args_text = json.dumps(args, indent=2, default=str) if args else "{}"
-        syntax = Syntax(
-            args_text, "json", theme="monokai", line_numbers=False, word_wrap=True
-        )
-
-        console.print(
-            Panel(
-                syntax,
-                title=f" [bold bright_yellow]Tool Call:[/] [bold]{name}[/] [dim]({tc_id[:8]})[/] ",
-                title_align="left",
-                border_style="bright_yellow",
-                padding=(0, 1),
-                box=box.ROUNDED,
+        else:
+            args_text = json.dumps(args, indent=2, default=str) if args else "{}"
+            syntax = Syntax(
+                args_text, "json", theme="monokai", line_numbers=False, word_wrap=True
             )
-        )
+
+            console.print(
+                Panel(
+                    syntax,
+                    title=f" [bold bright_yellow]Tool Call:[/] [bold]{name}[/] [dim]({tc_id[:8]})[/] ",
+                    title_align="left",
+                    border_style="bright_yellow",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+            console.print()
 
     @staticmethod
     def _render_todo_list(args: dict):
@@ -825,19 +824,17 @@ class CopilotCLI:
                 box=box.ROUNDED,
             )
         )
+        console.print()
 
     @staticmethod
     def _render_task_call(args: dict):
         """Render a task (subagent) tool call as a friendly delegation message."""
         subagent_type = args.get("subagent_type", "agent")
         description = args.get("description", "")
-        # Truncate long descriptions
-        if len(description) > 120:
-            description = description[:117] + "..."
-
         console.print(
             f"  [bold bright_magenta]🤖 Delegating to[/] [bold]{subagent_type}[/][bold bright_magenta]:[/] {description}"
         )
+        console.print()
 
     # Filesystem tool names for dispatch
     _FILESYSTEM_TOOLS = {
@@ -889,13 +886,15 @@ class CopilotCLI:
         if name == "ls":
             path = args.get("path", "/")
             console.print(f"  [bold yellow]📂 Listing[/] [dim]{path}[/]")
+            console.print()
 
         elif name == "read_file":
             fpath = args.get("file_path", "")
             offset = args.get("offset", 0)
             limit = args.get("limit", 100)
-            loc = f" [dim](lines {offset + 1}–{offset + limit})[/]" if offset else ""
+            loc = f" [dim](lines {offset + 1}–{offset + limit})[/]"
             console.print(f"  [bold yellow]📄 Reading[/] [dim]{fpath}[/]{loc}")
+            console.print()
 
         elif name == "write_file":
             fpath = args.get("file_path", "")
@@ -904,6 +903,7 @@ class CopilotCLI:
             console.print(
                 f"  [bold yellow]📝 Creating[/] [dim]{fpath}[/] [dim]({lines} lines)[/]"
             )
+            console.print()
 
         elif name == "edit_file":
             fpath = args.get("file_path", "")
@@ -935,6 +935,7 @@ class CopilotCLI:
                     box=box.ROUNDED,
                 )
             )
+            console.print()
 
         elif name == "glob":
             pattern = args.get("pattern", "")
@@ -943,6 +944,7 @@ class CopilotCLI:
             console.print(
                 f"  [bold yellow]🔍 Finding files[/] [bold]{pattern}[/]{in_path}"
             )
+            console.print()
 
         elif name == "grep":
             pattern = args.get("pattern", "")
@@ -957,6 +959,7 @@ class CopilotCLI:
             if mode != "files_with_matches":
                 parts.append(f"[dim][{mode}][/]")
             console.print(" ".join(parts))
+            console.print()
 
         elif name == "execute":
             command = args.get("command", "")
@@ -970,6 +973,7 @@ class CopilotCLI:
                     box=box.ROUNDED,
                 )
             )
+            console.print()
 
     @staticmethod
     def _render_filesystem_tool_response(msg: ToolMessage):
@@ -1040,8 +1044,7 @@ class CopilotCLI:
                 or "not found" in content.lower()
             ):
                 console.print(f"  [bold red]✗[/] {content}")
-            else:
-                console.print(f"  [bold green]✓[/] {content}")
+                console.print()
 
         elif tool_name in ("ls", "glob"):
             # File listing - show as compact list
@@ -1090,6 +1093,7 @@ class CopilotCLI:
                     box=box.ROUNDED,
                 )
             )
+        console.print()
 
     @staticmethod
     def _render_tool_message(msg: ToolMessage):
@@ -1099,35 +1103,35 @@ class CopilotCLI:
         # Dispatch filesystem tools to custom renderer
         if tool_name in CopilotCLI._FILESYSTEM_TOOLS:
             CopilotCLI._render_filesystem_tool_response(msg)
-            return
+        else:
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            tc_id = getattr(msg, "tool_call_id", "") or ""
 
-        content = msg.content if isinstance(msg.content, str) else str(msg.content)
-        tc_id = getattr(msg, "tool_call_id", "") or ""
+            # Truncate very long outputs
+            max_len = 5000  # Increased for better visibility, but still capped
+            if len(content) > max_len:
+                content = (
+                    content[:max_len]
+                    + f"\n... [dim](truncated, {len(content)} chars total)[/]"
+                )
 
-        # Truncate very long outputs
-        max_len = 5000  # Increased for better visibility, but still capped
-        if len(content) > max_len:
-            content = (
-                content[:max_len]
-                + f"\n... [dim](truncated, {len(content)} chars total)[/]"
+            title_parts = ["[bold bright_green]Tool Response[/]"]
+            if tool_name:
+                title_parts.append(f"[bold]{tool_name}[/]")
+            if tc_id:
+                title_parts.append(f"[dim]({tc_id[:8]})[/]")
+
+            console.print(
+                Panel(
+                    content,
+                    title=f" {' '.join(title_parts)} ",
+                    title_align="left",
+                    border_style="bright_green",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
             )
-
-        title_parts = ["[bold bright_green]Tool Response[/]"]
-        if tool_name:
-            title_parts.append(f"[bold]{tool_name}[/]")
-        if tc_id:
-            title_parts.append(f"[dim]({tc_id[:8]})[/]")
-
-        console.print(
-            Panel(
-                content,
-                title=f" {' '.join(title_parts)} ",
-                title_align="left",
-                border_style="bright_green",
-                padding=(0, 1),
-                box=box.ROUNDED,
-            )
-        )
+            console.print()
 
     @staticmethod
     def _render_system_message(msg: SystemMessage):
@@ -1135,6 +1139,7 @@ class CopilotCLI:
         content = msg.content if isinstance(msg.content, str) else str(msg.content)
         console.print()
         console.print(f"[bold magenta]System >[/] [dim italic]{content}[/]")
+        console.print()
 
     @staticmethod
     def _render_summary_panel(text: str, title: str = "💭 Thought"):
@@ -1154,6 +1159,7 @@ class CopilotCLI:
                 box=box.ROUNDED,
             )
         )
+        console.print()
 
     @staticmethod
     def _render_ai_complete(content: Union[str, List[Dict[str, Any]]]):
@@ -1164,6 +1170,7 @@ class CopilotCLI:
         if isinstance(content, str):
             if content.strip():
                 console.print(Markdown(content))
+                console.print()
             return
 
         if isinstance(content, list):
@@ -1185,6 +1192,7 @@ class CopilotCLI:
                     text_content = block.get("text", "")
                     if text_content.strip():
                         console.print(Markdown(text_content))
+                        console.print()
                 elif btype == "summary":
                     # Some models use 'summary' directly
                     text_content = block.get("text", "")
