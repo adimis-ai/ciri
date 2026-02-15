@@ -924,9 +924,9 @@ class CopilotCLI:
         console.print(
             Panel(
                 "[bold]CIRI needs your input[/]",
-                title="[bold yellow]Clarification Needed[/]",
+                title="[bold cyan]Clarification Needed[/]",
                 title_align="left",
-                border_style="yellow",
+                border_style="cyan",
                 padding=(0, 1),
             )
         )
@@ -971,9 +971,9 @@ class CopilotCLI:
         console.print(
             Panel(
                 "[bold]A script wants to execute[/]",
-                title="[bold red]Script Execution Approval[/]",
+                title="[bold cyan]Script Execution Approval[/]",
                 title_align="left",
-                border_style="red",
+                border_style="cyan",
                 padding=(0, 1),
             )
         )
@@ -1032,9 +1032,9 @@ class CopilotCLI:
         console.print(
             Panel(
                 "[bold]Tool execution requires your approval[/]",
-                title="[bold red]Tool Approval Required[/]",
+                title="[bold cyan]Tool Approval Required[/]",
                 title_align="left",
-                border_style="red",
+                border_style="cyan",
                 padding=(0, 1),
             )
         )
@@ -1313,7 +1313,7 @@ class CopilotCLI:
 
             # Render interrupt indicator
             console.print()
-            console.print(Rule("[bold yellow]Interrupt[/]", style="yellow"))
+            console.print(Rule("[bold cyan]Interrupt[/]", style="cyan"))
 
             # Handle the interrupt
             resume_value = self._handle_interrupt(interrupt_data)
