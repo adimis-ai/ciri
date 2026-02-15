@@ -93,7 +93,6 @@ async def build_toolkit_builder_agent(
         get_default_filesystem_root() / ".ciri" / "skills" / "mcp-builder"
     )
 
-
     interrupt_on = None
     if not all_allowed:
         interrupt_on = {
@@ -101,8 +100,7 @@ async def build_toolkit_builder_agent(
             "edit_file": True,
             "write_file": True,
         }
-        
-        
+
     # Define the Toolkit Builder SubAgent
     toolkit_builder_agent = create_deep_agent(
         model=model,

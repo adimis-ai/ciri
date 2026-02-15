@@ -346,15 +346,3 @@ class ToolkitInjectionMiddleware(AgentMiddleware):
                 if tool.name not in request_tool_names:
                     request.tools.append(tool)
                     request_tool_names.add(tool.name)
-
-    def wrap_tool_call(self, request, handler):
-        """Inject toolkit tools into the tool call request."""
-        self._refresh_tools()
-        self._inject_tools(request)
-        return super().wrap_tool_call(request, handler)
-
-    async def awrap_tool_call(self, request, handler):
-        """Inject toolkit tools into the tool call request (async)."""
-        self._refresh_tools()
-        self._inject_tools(request)
-        return await super().awrap_tool_call(request, handler)

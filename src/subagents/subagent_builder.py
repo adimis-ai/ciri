@@ -146,7 +146,6 @@ async def build_subagent_builder_agent(
         get_default_filesystem_root() / ".ciri" / "skills" / "skill-creator"
     )
 
-
     interrupt_on = None
     if not all_allowed:
         interrupt_on = {
@@ -154,7 +153,7 @@ async def build_subagent_builder_agent(
             "edit_file": True,
             "write_file": True,
         }
-        
+
     # Define the SubAgent Builder SubAgent
     subagent_builder_agent = create_deep_agent(
         model=model,

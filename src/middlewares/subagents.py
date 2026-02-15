@@ -195,11 +195,3 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
             return super().awrap_model_call(request, handler)
         else:
             return super().wrap_model_call(request, handler)
-
-    async def awrap_tool_call(self, request, handler):
-        self._refresh_subagents()
-        return await super().awrap_tool_call(request, handler)
-
-    def wrap_tool_call(self, request, handler):
-        self._refresh_subagents()
-        return super().wrap_tool_call(request, handler)

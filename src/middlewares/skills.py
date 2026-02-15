@@ -137,11 +137,3 @@ class SkillsMiddleware(BaseSkillsMiddleware):
     def wrap_model_call(self, request, handler):
         self._refresh_sources()
         return handler(request)
-
-    async def awrap_tool_call(self, request, handler):
-        self._refresh_sources()
-        return await handler(request)
-
-    def wrap_tool_call(self, request, handler):
-        self._refresh_sources()
-        return handler(request)
