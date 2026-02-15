@@ -30,7 +30,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 
 # LangGraph / LangChain imports
-from langgraph.types import Command
+from langgraph.types import Command, Interrupt
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langchain_core.messages import (
     HumanMessage,
@@ -1250,7 +1250,7 @@ class CopilotCLI:
 
                             # Check for __interrupt__
                             if node_name == "__interrupt__":
-                                if isinstance(node_value, list):
+                                if isinstance(node_value, (list, tuple)):
                                     pending_interrupts.extend(node_value)
                                 else:
                                     pending_interrupts.append(node_value)
@@ -1303,10 +1303,13 @@ class CopilotCLI:
     async def _process_interrupts(self, interrupts: list):
         """Process collected interrupts and resume the graph."""
         for intr in interrupts:
-            # Extract the actual interrupt value
-            interrupt_data = intr
-            if isinstance(intr, dict) and "value" in intr:
+            # Extract the actual interrupt value from Interrupt dataclass or dict
+            if isinstance(intr, Interrupt):
+                interrupt_data = intr.value
+            elif isinstance(intr, dict) and "value" in intr:
                 interrupt_data = intr["value"]
+            else:
+                interrupt_data = intr
 
             # Render interrupt indicator
             console.print()
