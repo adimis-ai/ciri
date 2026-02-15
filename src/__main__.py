@@ -748,10 +748,18 @@ class CopilotCLI:
 
     @staticmethod
     def _render_human_message(msg: HumanMessage):
-        """Render a HumanMessage."""
+        """Render a HumanMessage in a compact panel."""
         content = msg.content if isinstance(msg.content, str) else str(msg.content)
-        console.print()
-        console.print(f"[bold bright_green]You >[/] {content}")
+        console.print(
+            Panel(
+                content,
+                title=" [bold bright_green]You[/] ",
+                title_align="left",
+                border_style="bright_green",
+                padding=(0, 1),
+                box=box.ROUNDED,
+            )
+        )
 
     @staticmethod
     def _render_tool_call(tool_call: dict):
@@ -776,7 +784,6 @@ class CopilotCLI:
             args_text, "json", theme="monokai", line_numbers=False, word_wrap=True
         )
 
-        console.print()
         console.print(
             Panel(
                 syntax,
@@ -808,7 +815,6 @@ class CopilotCLI:
             lines.append(f"  {indicator} {content}")
 
         body = "\n".join(lines)
-        console.print()
         console.print(
             Panel(
                 body,
@@ -829,7 +835,6 @@ class CopilotCLI:
         if len(description) > 120:
             description = description[:117] + "..."
 
-        console.print()
         console.print(
             f"  [bold bright_magenta]🤖 Delegating to[/] [bold]{subagent_type}[/][bold bright_magenta]:[/] {description}"
         )
@@ -881,8 +886,6 @@ class CopilotCLI:
     @staticmethod
     def _render_filesystem_tool_call(name: str, args: dict):
         """Render a filesystem tool call with a friendly, compact format."""
-        console.print()
-
         if name == "ls":
             path = args.get("path", "/")
             console.print(f"  [bold yellow]📂 Listing[/] [dim]{path}[/]")
@@ -980,8 +983,6 @@ class CopilotCLI:
         if len(content) > max_len:
             content = content[:max_len]
             truncated = True
-
-        console.print()
 
         if tool_name == "read_file":
             # Detect language from the tool_call context or content
@@ -1117,7 +1118,6 @@ class CopilotCLI:
         if tc_id:
             title_parts.append(f"[dim]({tc_id[:8]})[/]")
 
-        console.print()
         console.print(
             Panel(
                 content,
@@ -1232,8 +1232,6 @@ class CopilotCLI:
                 self._render_human_message(msg)
             elif isinstance(msg, AIMessage):
                 # For history, we render the full content of AI messages
-                console.print()
-                console.print("[bold cyan]CIRI >[/]")
                 self._render_ai_complete(msg.content)
 
                 # Also render tool calls if any (skip follow_up_with_human and old write_todos)
@@ -1567,18 +1565,10 @@ class CopilotCLI:
                                                 summary_text
                                             )
 
-                                            # Resume CIRI prompt for subsequent text
-                                            if not streaming_ai:
-                                                console.print(
-                                                    "[bold cyan]CIRI >[/] ", end=""
-                                                )
-                                                streaming_ai = True
-
                             if token:
                                 if not streaming_ai:
                                     streaming_ai = True
                                     console.print()
-                                    console.print("[bold cyan]CIRI >[/] ", end="")
 
                                 # Typewrite: print each token directly to stdout
                                 sys.stdout.write(token)
