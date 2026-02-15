@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import signal
 import platform
 import subprocess
 import httpx
@@ -86,6 +87,13 @@ COMMANDS_HELP = {
     "/threads": "List all threads",
     "/help": "Show this help message",
     "/exit": "Exit CIRI",
+}
+
+KEYBOARD_SHORTCUTS = {
+    "Alt+Enter": "Insert new line",
+    "Ctrl+C": "Stop streaming",
+    "Ctrl+C ×2": "Exit CIRI",
+    "↑ / ↓": "Browse history",
 }
 
 DEFAULT_MODEL = "openai/gpt-5-mini"
@@ -697,29 +705,42 @@ class CopilotCLI:
     # ── Commands Help ─────────────────────────────────────────────────────
 
     def _show_commands_help(self):
-        """Display available commands in a perfectly aligned 2-column layout using a Table."""
-        console.print(Rule("[bold cyan]Available Commands[/]", style="cyan"))
+        """Display commands and keyboard shortcuts in a 3-column layout."""
+        console.print(Rule("[bold cyan]Available Commands & Shortcuts[/]", style="cyan"))
 
         table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
         table.add_column("left_cmd", style="bold cyan", width=16)
         table.add_column("left_desc", style="white")
         table.add_column("right_cmd", style="bold cyan", width=16)
         table.add_column("right_desc", style="white")
+        table.add_column("shortcut_key", style="bold yellow", width=14)
+        table.add_column("shortcut_desc", style="white")
 
-        items = list(COMMANDS_HELP.items())
-        # Logic to split into two columns: left column first half, right column second half
-        mid = (len(items) + 1) // 2
+        cmd_items = list(COMMANDS_HELP.items())
+        shortcut_items = list(KEYBOARD_SHORTCUTS.items())
+        cmd_mid = (len(cmd_items) + 1) // 2
+        num_rows = max(cmd_mid, len(shortcut_items))
 
-        for i in range(mid):
+        for i in range(num_rows):
             row = []
-            # Left column
-            cmd, desc = items[i]
-            row.extend([f"  {cmd}", desc])
-
-            # Right column
-            if i + mid < len(items):
-                cmd, desc = items[i + mid]
+            # Left command column
+            if i < cmd_mid:
+                cmd, desc = cmd_items[i]
                 row.extend([f"  {cmd}", desc])
+            else:
+                row.extend(["", ""])
+
+            # Right command column
+            if i + cmd_mid < len(cmd_items):
+                cmd, desc = cmd_items[i + cmd_mid]
+                row.extend([f"  {cmd}", desc])
+            else:
+                row.extend(["", ""])
+
+            # Keyboard shortcuts column
+            if i < len(shortcut_items):
+                key, desc = shortcut_items[i]
+                row.extend([f"  {key}", desc])
             else:
                 row.extend(["", ""])
 
@@ -2123,13 +2144,28 @@ class CopilotCLI:
 
             try:
                 self._streaming = True
-                await self._stream_response(
-                    {"messages": [HumanMessage(content=user_input)]}
+                stream_task = asyncio.create_task(
+                    self._stream_response(
+                        {"messages": [HumanMessage(content=user_input)]}
+                    )
                 )
-            except KeyboardInterrupt:
-                # Single Ctrl+C during streaming → stop and return to prompt
-                self._last_ctrl_c_time = time.monotonic()
-                console.print("\n  [yellow]Interrupted.[/]")
+
+                loop = asyncio.get_running_loop()
+
+                def _cancel_stream():
+                    if not stream_task.done():
+                        stream_task.cancel()
+
+                loop.add_signal_handler(signal.SIGINT, _cancel_stream)
+
+                try:
+                    await stream_task
+                except asyncio.CancelledError:
+                    # Single Ctrl+C during streaming → stop and return to prompt
+                    self._last_ctrl_c_time = time.monotonic()
+                    console.print("\n  [yellow]Interrupted.[/]")
+                finally:
+                    loop.remove_signal_handler(signal.SIGINT)
             except Exception as e:
                 console.print(f"\n  [bold red]Error:[/] {e}")
             finally:
