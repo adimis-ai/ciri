@@ -163,11 +163,6 @@ async def build_subagent_builder_agent(
         interrupt_on=interrupt_on,
         name="subagent_builder_agent",
         subagents=[web_researcher_agent],
-        interrupt_on={
-            "execute": True,
-            "edit_file": True,
-            "write_file": True,
-        },
         system_prompt=SUBAGENT_BUILDER_SYSTEM_PROMPT,
         tools=[build_script_executor_tool(), follow_up_with_human],
         skills=[p for p in [subagent_builder_path, skill_creator_path] if p.exists()],
