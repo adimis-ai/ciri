@@ -586,6 +586,10 @@ class CopilotCLI:
         info_text.append(f"{thread_title} ", style="white")
         info_text.append(f"({thread_id})", style="dim")
 
+        if self.all_allowed:
+            info_text.append("  ||  ", style="dim")
+            info_text.append("Full Access", style="bold red")
+
         console.print(Align.center(info_text))
         console.print()
 
