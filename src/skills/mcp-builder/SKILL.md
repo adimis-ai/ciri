@@ -95,6 +95,7 @@ To ensure your toolkit is automatically discovered and loaded by the `ToolkitInj
 **For TypeScript (Node.js):**
 *   Must use `package.json`
 *   Must include `@modelcontextprotocol/sdk` in dependencies
+*   Must include `"type": "module"` in `package.json` (CRITICAL for ESM support)
 *   Must include a `build` script in `package.json` (e.g., `"build": "tsc"`)
 *   Entry point must be specified in `package.json` under `main` (defaults to `dist/index.js` if unspecified)
 

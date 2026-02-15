@@ -24,7 +24,7 @@ from rich.align import Align
 from rich import box
 
 # prompt_toolkit for input
-from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
@@ -163,6 +163,10 @@ class CopilotCLI:
         self.selected_browser_profile: Optional[Dict[str, Any]] = None
         self.input_history = InMemoryHistory()
         self.completer = CiriCompleter()
+        self.session = PromptSession(
+            completer=self.completer,
+            history=self.input_history,
+        )
 
     # ── Banner ────────────────────────────────────────────────────────────
 
@@ -958,11 +962,10 @@ class CopilotCLI:
 
         while True:
             try:
-                user_input = pt_prompt(
+                user_input = await self.session.prompt_async(
                     HTML("<ansicyan><b>You > </b></ansicyan>"),
-                    completer=self.completer,
-                    history=self.input_history,
-                ).strip()
+                )
+                user_input = user_input.strip()
             except (EOFError, KeyboardInterrupt):
                 console.print("\n  [dim]Goodbye![/]")
                 break

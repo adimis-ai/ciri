@@ -26,6 +26,10 @@
 - **stdio**: For local integrations, command-line tools
 - Avoid SSE (deprecated in favor of streamable HTTP)
 
+### Language-Specific Critical Settings
+- **Node/TypeScript**: MUST have `"type": "module"` in `package.json` and use `.js` extensions in imports.
+- **Python**: Entry point MUST be `src/main.py` for auto-discovery.
+
 ---
 
 ## Server Naming Conventions

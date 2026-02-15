@@ -4,6 +4,13 @@
 
 This document provides Node/TypeScript-specific best practices and examples for implementing MCP servers using the MCP TypeScript SDK. It covers project structure, server setup, tool registration patterns, input validation with Zod, error handling, and complete working examples.
 
+> [!CAUTION]
+> **CRITICAL: ES Module (ESM) Requirement**
+> Node.js MCP servers using the `@modelcontextprotocol/sdk` MUST be configured as ES Modules.
+> 1.  **package.json**: Must include `"type": "module"`.
+> 2.  **Imports**: All relative imports MUST include the `.js` extension (e.g., `import { foo } from "./utils.js"`), even when writing TypeScript.
+> 3.  **tsconfig.json**: Must use `module: "Node16"` or `NodeNext`.
+
 ---
 
 ## Quick Reference
@@ -80,8 +87,8 @@ Create the following structure for Node/TypeScript MCP servers to ensure compati
 
 ```
 {service}-mcp-server/
-├── package.json      # Must include @modelcontextprotocol/sdk and "main" entry point
-├── tsconfig.json
+├── package.json      # Must include @modelcontextprotocol/sdk, "type": "module", and "main"
+├── tsconfig.json     # Must use "module": "Node16"
 ├── README.md
 ├── src/
 │   ├── index.ts      # Main entry point
