@@ -96,52 +96,72 @@ console = Console()
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _persist_env_var(name: str, value: str) -> str:
+def _persist_env_var(name: str, value: str) -> list[str]:
     """Persist an environment variable globally across Mac, Linux, and Windows.
 
-    Returns a human-readable message describing where the variable was saved.
+    Writes to:
+    1. CIRI's global .env file (~/.ciri/.env) — read by load_all_dotenv() on every startup
+    2. Shell profile or Windows registry — so the var is available outside CIRI too
+
+    Returns a list of human-readable messages describing where the variable was saved.
     """
+    messages: list[str] = []
     system = platform.system()
 
+    # ── 1. Always write to CIRI's global .env (cross-platform, always works) ──
+    global_env = get_app_data_dir() / ".env"
+    try:
+        global_env.parent.mkdir(parents=True, exist_ok=True)
+        env_line = f"{name}={value}"
+
+        if global_env.exists():
+            content = global_env.read_text()
+            lines = content.splitlines()
+            found = False
+            new_lines = []
+            for line in lines:
+                if line.strip().startswith(f"{name}="):
+                    new_lines.append(env_line)
+                    found = True
+                else:
+                    new_lines.append(line)
+            if not found:
+                new_lines.append(env_line)
+            global_env.write_text("\n".join(new_lines) + "\n")
+        else:
+            global_env.write_text(env_line + "\n")
+
+        messages.append(f"Saved to [bold]{global_env}[/] (loaded automatically by CIRI).")
+    except OSError as e:
+        messages.append(f"[yellow]Warning:[/] Could not write to {global_env}: {e}")
+
+    # ── 2. Also persist to shell profile / Windows registry ──
     if system == "Windows":
-        # Use setx to set a permanent user-level environment variable
         try:
             subprocess.run(
                 ["setx", name, value],
                 check=True,
                 capture_output=True,
             )
-            return "Saved via [bold]setx[/] (permanent user environment variable)."
-        except Exception as e:
-            return f"[yellow]Warning:[/] Could not run setx: {e}. Variable set for this session only."
-
-    # macOS / Linux — append export to the appropriate shell profile
-    home = Path.home()
-    shell = os.environ.get("SHELL", "")
-    export_line = f'\nexport {name}="{value}"\n'
-
-    # Determine which profile files to write to
-    profiles: list[Path] = []
-    if "zsh" in shell:
-        profiles.append(home / ".zshrc")
-    elif "bash" in shell:
-        # Prefer .bash_profile on macOS, .bashrc on Linux
-        if system == "Darwin":
-            profiles.append(home / ".bash_profile")
-        else:
-            profiles.append(home / ".bashrc")
+            messages.append("Saved via [bold]setx[/] (available in new terminals).")
+        except Exception:
+            pass  # CIRI .env is the primary store; this is best-effort
     else:
-        # Fallback: write to .profile (POSIX standard)
-        profiles.append(home / ".profile")
+        home = Path.home()
+        shell = os.environ.get("SHELL", "")
+        export_line = f'\nexport {name}="{value}"\n'
 
-    written_to: list[str] = []
-    for profile in profiles:
+        if "zsh" in shell:
+            profile = home / ".zshrc"
+        elif "bash" in shell:
+            profile = (home / ".bash_profile") if system == "Darwin" else (home / ".bashrc")
+        else:
+            profile = home / ".profile"
+
         try:
-            # Check if already present
             if profile.exists():
                 content = profile.read_text()
                 if f"export {name}=" in content:
-                    # Update existing line
                     lines = content.splitlines(keepends=True)
                     new_lines = []
                     for line in lines:
@@ -150,19 +170,17 @@ def _persist_env_var(name: str, value: str) -> str:
                         else:
                             new_lines.append(line)
                     profile.write_text("".join(new_lines))
-                    written_to.append(str(profile))
-                    continue
-
-            with open(profile, "a") as f:
-                f.write(export_line)
-            written_to.append(str(profile))
+                else:
+                    with open(profile, "a") as f:
+                        f.write(export_line)
+            else:
+                with open(profile, "a") as f:
+                    f.write(export_line)
+            messages.append(f"Saved to [bold]{profile}[/] (available in new terminals).")
         except OSError:
-            continue
+            pass  # CIRI .env is the primary store; this is best-effort
 
-    if written_to:
-        files = ", ".join(f"[bold]{p}[/]" for p in written_to)
-        return f"Saved to {files}. Restart your shell or run [dim]source {written_to[0]}[/] to apply."
-    return "[yellow]Warning:[/] Could not write to any shell profile. Variable set for this session only."
+    return messages
 
 
 def ensure_openrouter_api_key() -> None:
@@ -193,9 +211,10 @@ def ensure_openrouter_api_key() -> None:
     os.environ["OPENROUTER_API_KEY"] = api_key
 
     # Persist globally
-    result_msg = _persist_env_var("OPENROUTER_API_KEY", api_key)
-    console.print(f"  [green]✓[/] API key set for this session.")
-    console.print(f"  [green]✓[/] {result_msg}")
+    messages = _persist_env_var("OPENROUTER_API_KEY", api_key)
+    console.print("  [green]✓[/] API key set for this session.")
+    for msg in messages:
+        console.print(f"  [green]✓[/] {msg}")
     console.print()
 
 
