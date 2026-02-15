@@ -44,16 +44,16 @@ class LLMConfig(BaseModel):
 
     @cached_property
     def _parsed_model(self) -> Tuple[str | None, str]:
+        if self._is_openrouter:  # openrouter provider/model (may contain colons)
+            return tuple(self.model.split("/", 1))
         if ":" in self.model:  # langchain direct provider:model
             return tuple(self.model.split(":", 1))
-        if "/" in self.model:  # openrouter provider/model
-            return tuple(self.model.split("/", 1))
         return None, self.model
 
     @cached_property
     def _is_openrouter(self) -> bool:
-        # provider/model AND provider not explicitly specified via provider:model
-        return "/" in self.model and ":" not in self.model
+        # OpenRouter models are consistently identified by 'provider/model'
+        return "/" in self.model
 
     @cached_property
     def _resolved_api_config(self) -> Dict[str, Any]:
@@ -114,7 +114,7 @@ class LLMConfig(BaseModel):
             }
 
             return init_chat_model(
-                model=model_name,
+                model=self.model,
                 model_provider="openai",
                 base_url=base_url,
                 api_key=api_key,
