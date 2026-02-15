@@ -210,6 +210,7 @@ class CopilotCLI:
             completer=self.completer,
             history=self.input_history,
         )
+        self.is_new_thread = False  # Track if the current thread needs a title
 
     # ── Banner ────────────────────────────────────────────────────────────
 
@@ -475,15 +476,15 @@ class CopilotCLI:
     # ── Thread Management ─────────────────────────────────────────────────
 
     async def _cmd_new_thread(self):
-        """Create a new thread."""
-        title = Prompt.ask("  Thread title", default="New Thread", console=console)
+        """Create a new thread without prompting for a title."""
         self.current_thread = self.controller.create_thread()
-        if title != "New Thread":
-            self.controller.rename_thread(self.current_thread["id"], title)
-            self.current_thread["title"] = title
-        console.print(f"  [green]✓[/] Created thread: [bold]{self.current_thread['title']}[/]")
+        self.is_new_thread = True
+        
+        # Clear terminal and render post-setup screen
+        self._render_post_setup_screen()
+        console.print(f"  [green]✓[/] Created new thread")
         console.print()
-        await self._render_existing_messages()
+        # No need to render existing messages for a brand-new thread
 
     async def _cmd_switch_thread(self):
         """Switch to a different thread."""
@@ -517,6 +518,9 @@ class CopilotCLI:
             if 0 <= idx < len(threads):
                 self.current_thread = threads[idx]
                 self.controller.touch_thread(self.current_thread["id"])
+                
+                # Clear terminal and render post-setup screen
+                self._render_post_setup_screen()
                 console.print(
                     f"  [green]✓[/] Switched to: [bold]{self.current_thread['title']}[/]"
                 )
@@ -559,6 +563,7 @@ class CopilotCLI:
                         remaining = self.controller.list_threads()
                         if remaining:
                             self.current_thread = remaining[0]
+                            self._render_post_setup_screen()
                             console.print(
                                 f"  [green]✓[/] Switched to: [bold]{self.current_thread['title']}[/]"
                             )
@@ -566,9 +571,10 @@ class CopilotCLI:
                             await self._render_existing_messages()
                         else:
                             self.current_thread = self.controller.create_thread()
+                            self._render_post_setup_screen()
                             console.print("  [green]✓[/] Created new thread")
                             console.print()
-                            await self._render_existing_messages()
+                            # No need to render existing messages for a brand-new thread
             else:
                 console.print("  [yellow]Invalid selection.[/]")
         except ValueError:
@@ -994,104 +1000,133 @@ class CopilotCLI:
         ai_buffer = ""  # accumulates streamed AI tokens
         pending_interrupts = []  # collect interrupts from updates
         streaming_ai = False
+        
+        # Node-name to indicator map
+        INDICATORS = {
+            "researcher": "Exploring...",
+            "planner": "Planning...",
+            "executor": "Executing...",
+            "writer": "Writing...",
+            "default": "Thinking..."
+        }
 
         try:
-            async for namespace, stream_type, chunk in self.controller.run(
-                inputs, config
-            ):
-                # ── messages mode: token-by-token AI streaming ──
-                if stream_type == "messages":
-                    message, metadata = chunk
+            # We use a context manager for the status indicator
+            with console.status("[bold cyan]Thinking...[/]", spinner="dots") as status:
+                async for namespace, stream_type, chunk in self.controller.run(
+                    inputs, config
+                ):
+                    # ── messages mode: token-by-token AI streaming ──
+                    if stream_type == "messages":
+                        message, metadata = chunk
 
-                    if isinstance(message, (AIMessageChunk, AIMessage)):
-                        token = ""
-                        if isinstance(message.content, str):
-                            token = message.content
-                        elif isinstance(message.content, list):
-                            for block in message.content:
-                                if not isinstance(block, dict):
-                                    continue
-                                
-                                btype = block.get("type")
-                                if btype == "text":
-                                    token += block.get("text", "")
-                                elif btype == "reasoning":
-                                    # For streaming, we might want to show reasoning as it comes
-                                    # but it's complex to handle partial summaries nicely.
-                                    # For now, let's just collect it and show it if it's a full block
-                                    summary_list = block.get("summary", [])
-                                    summary_text = ""
-                                    for s in summary_list:
-                                        if isinstance(s, dict) and s.get("type") == "summary_text":
-                                            summary_text += s.get("text", "")
+                        if isinstance(message, (AIMessageChunk, AIMessage)):
+                            # Hide status when starting to stream tokens
+                            status.stop()
+                            
+                            token = ""
+                            if isinstance(message.content, str):
+                                token = message.content
+                            elif isinstance(message.content, list):
+                                for block in message.content:
+                                    if not isinstance(block, dict):
+                                        continue
                                     
-                                    if summary_text:
-                                        # Flush if we were already streaming text
-                                        if streaming_ai:
-                                            sys.stdout.write("\n")
-                                            sys.stdout.flush()
-                                            streaming_ai = False
+                                    btype = block.get("type")
+                                    if btype == "text":
+                                        token += block.get("text", "")
+                                    elif btype == "reasoning":
+                                        # For streaming, we might want to show reasoning as it comes
+                                        # but it's complex to handle partial summaries nicely.
+                                        # For now, let's just collect it and show it if it's a full block
+                                        summary_list = block.get("summary", [])
+                                        summary_text = ""
+                                        for s in summary_list:
+                                            if isinstance(s, dict) and s.get("type") == "summary_text":
+                                                summary_text += s.get("text", "")
                                         
-                                        CopilotCLI._render_summary_panel(summary_text)
-                                        
-                                        # Resume CIRI prompt for subsequent text
-                                        if not streaming_ai:
-                                            console.print("[bold cyan]CIRI >[/] ", end="")
-                                            streaming_ai = True
+                                        if summary_text:
+                                            # Flush if we were already streaming text
+                                            if streaming_ai:
+                                                sys.stdout.write("\n")
+                                                sys.stdout.flush()
+                                                streaming_ai = False
+                                            
+                                            CopilotCLI._render_summary_panel(summary_text)
+                                            
+                                            # Resume CIRI prompt for subsequent text
+                                            if not streaming_ai:
+                                                console.print("[bold cyan]CIRI >[/] ", end="")
+                                                streaming_ai = True
 
-                        if token:
+                            if token:
+                                if not streaming_ai:
+                                    streaming_ai = True
+                                    console.print()
+                                    console.print("[bold cyan]CIRI >[/] ", end="")
+
+                                # Typewrite: print each token directly to stdout
+                                sys.stdout.write(token)
+                                sys.stdout.flush()
+                                ai_buffer += token
+
+                    # ── updates mode: state updates from nodes ──
+                    elif stream_type == "updates":
+                        for node_name, node_value in chunk.items():
+                            # Update status based on node name
                             if not streaming_ai:
-                                streaming_ai = True
-                                console.print()
-                                console.print("[bold cyan]CIRI >[/] ", end="")
+                                # Try to find a specific indicator
+                                indicator = INDICATORS.get("default")
+                                for key in INDICATORS:
+                                    if key in node_name.lower():
+                                        indicator = INDICATORS[key]
+                                        break
+                                status.update(f"[bold cyan]{indicator}[/]")
+                                if not status._live.is_started:
+                                    status.start()
 
-                            # Typewrite: print each token directly to stdout
-                            sys.stdout.write(token)
-                            sys.stdout.flush()
-                            ai_buffer += token
+                            # Check for __interrupt__
+                            if node_name == "__interrupt__":
+                                if isinstance(node_value, list):
+                                    pending_interrupts.extend(node_value)
+                                else:
+                                    pending_interrupts.append(node_value)
+                                continue
 
-                # ── updates mode: state updates from nodes ──
-                elif stream_type == "updates":
-                    for node_name, node_value in chunk.items():
-                        # Check for __interrupt__
-                        if node_name == "__interrupt__":
-                            if isinstance(node_value, list):
-                                pending_interrupts.extend(node_value)
-                            else:
-                                pending_interrupts.append(node_value)
-                            continue
+                            # Process messages in the update
+                            if isinstance(node_value, dict) and "messages" in node_value:
+                                messages = node_value["messages"]
+                                if not isinstance(messages, list):
+                                    messages = [messages]
 
-                        # Process messages in the update
-                        if isinstance(node_value, dict) and "messages" in node_value:
-                            messages = node_value["messages"]
-                            if not isinstance(messages, list):
-                                messages = [messages]
+                                for msg in messages:
+                                    # Flush AI buffer before rendering other message types
+                                    if streaming_ai and ai_buffer.strip():
+                                        # End the streaming line
+                                        sys.stdout.write("\n")
+                                        sys.stdout.flush()
+                                        streaming_ai = False
+                                        ai_buffer = ""
 
-                            for msg in messages:
-                                # Flush AI buffer before rendering other message types
-                                if streaming_ai and ai_buffer.strip():
-                                    # End the streaming line
-                                    sys.stdout.write("\n")
-                                    sys.stdout.flush()
-                                    streaming_ai = False
-                                    ai_buffer = ""
-
-                                if isinstance(msg, HumanMessage):
-                                    self._render_human_message(msg)
-                                elif isinstance(msg, AIMessage) and not isinstance(msg, AIMessageChunk):
-                                    # Full AI message from updates - render tool_calls only
-                                    for tc in getattr(msg, "tool_calls", []):
-                                        self._render_tool_call(tc)
-                                elif isinstance(msg, ToolMessage):
-                                    self._render_tool_message(msg)
-                                elif isinstance(msg, SystemMessage):
-                                    self._render_system_message(msg)
+                                    if isinstance(msg, HumanMessage):
+                                        self._render_human_message(msg)
+                                    elif isinstance(msg, AIMessage) and not isinstance(msg, AIMessageChunk):
+                                        # Full AI message from updates - render tool_calls only
+                                        for tc in getattr(msg, "tool_calls", []):
+                                            self._render_tool_call(tc)
+                                    elif isinstance(msg, ToolMessage):
+                                        self._render_tool_message(msg)
+                                    elif isinstance(msg, SystemMessage):
+                                        self._render_system_message(msg)
 
         finally:
             # Flush remaining AI buffer
             if streaming_ai and ai_buffer.strip():
                 sys.stdout.write("\n")
                 sys.stdout.flush()
+            
+            # Ensure status is stopped
+            # status is automatically stopped by the with block
 
         # Handle any interrupts that were collected
         if pending_interrupts:
@@ -1164,6 +1199,22 @@ class CopilotCLI:
 
             # ── Send message ──
             self.controller.touch_thread(self.current_thread["id"])
+
+            # ── Auto-generate title for new thread ──
+            if self.is_new_thread:
+                # Clean up input for title: first line, max 40 chars
+                first_line = user_input.split('\n')[0].strip()
+                title = (first_line[:37] + "...") if len(first_line) > 40 else first_line
+                if not title:
+                    title = "New Thread"
+                
+                self.controller.rename_thread(self.current_thread["id"], title)
+                self.current_thread["title"] = title
+                self.is_new_thread = False
+                
+                # Update info line to show new title
+                console.print(f"  [dim]Thread renamed to:[/] [bold cyan]{title}[/]")
+                console.print()
 
             try:
                 await self._stream_response({"messages": [HumanMessage(content=user_input)]})
