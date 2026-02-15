@@ -1560,16 +1560,56 @@ class CopilotCLI:
             if desc:
                 console.print(f"  [dim]{desc}[/]")
             if args:
-                args_text = json.dumps(args, indent=2, default=str)
-                console.print(
-                    Syntax(
-                        args_text,
-                        "json",
-                        theme="monokai",
-                        line_numbers=False,
-                        word_wrap=True,
+                if name == "write_file":
+                    fpath = args.get("file_path", "unknown")
+                    content = args.get("content", "")
+                    extension = os.path.splitext(fpath)[1]
+                    lexer = CopilotCLI._EXT_TO_LEXER.get(extension, "text")
+
+                    console.print(f"[bold cyan]File:[/] [white]{fpath}[/]")
+                    if content:
+                        console.print(
+                            Panel(
+                                Syntax(
+                                    content,
+                                    lexer,
+                                    theme="monokai",
+                                    line_numbers=True,
+                                    word_wrap=True,
+                                ),
+                                title="[bold green]File Content[/] ",
+                                title_align="left",
+                                border_style="green",
+                                box=box.ROUNDED,
+                                padding=(0, 1),
+                            )
+                        )
+                    
+                    # Show other args if any
+                    other_args = {k: v for k, v in args.items() if k not in ("file_path", "content")}
+                    if other_args:
+                        args_text = json.dumps(other_args, indent=2, default=str)
+                        console.print(f"[dim]Other Arguments:[/]")
+                        console.print(
+                            Syntax(
+                                args_text,
+                                "json",
+                                theme="monokai",
+                                line_numbers=False,
+                                word_wrap=True,
+                            )
+                        )
+                else:
+                    args_text = json.dumps(args, indent=2, default=str)
+                    console.print(
+                        Syntax(
+                            args_text,
+                            "json",
+                            theme="monokai",
+                            line_numbers=False,
+                            word_wrap=True,
+                        )
                     )
-                )
 
             # Find allowed decisions for this action
             allowed = ["approve", "reject"]
