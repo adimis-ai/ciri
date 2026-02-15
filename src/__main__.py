@@ -684,6 +684,23 @@ class CopilotCLI:
         console.print(f"[bold magenta]System >[/] [dim italic]{content}[/]")
 
     @staticmethod
+    def _render_summary_panel(text: str, title: str = "💭 Summarization"):
+        """Render a summarization or reasoning block in a beautiful Panel."""
+        if not text.strip():
+            return
+        
+        console.print()
+        console.print(Panel(
+            text,
+            title=f" [bold blue]{title}[/] ",
+            title_align="left",
+            border_style="blue",
+            padding=(1, 2),
+            style="italic",
+            box=box.ROUNDED,
+        ))
+
+    @staticmethod
     def _render_ai_complete(content: Union[str, List[Dict[str, Any]]]):
         """Render a complete AI message (non-streamed).
         
@@ -708,16 +725,7 @@ class CopilotCLI:
                             summary_text += s.get("text", "")
                     
                     if summary_text:
-                        console.print()
-                        console.print(Panel(
-                            summary_text,
-                            title="[bold dim cyan]Summary & Reasoning[/]",
-                            title_align="left",
-                            border_style="dim cyan",
-                            padding=(0, 1),
-                            style="italic dim",
-                            box=box.MINIMAL,
-                        ))
+                        CopilotCLI._render_summary_panel(summary_text)
                 elif btype == "text":
                     text_content = block.get("text", "")
                     if text_content.strip():
@@ -726,14 +734,7 @@ class CopilotCLI:
                     # Some models use 'summary' directly
                     text_content = block.get("text", "")
                     if text_content.strip():
-                        console.print(Panel(
-                            text_content,
-                            title="[bold dim cyan]Summary[/]",
-                            title_align="left",
-                            border_style="dim cyan",
-                            style="italic dim",
-                            box=box.MINIMAL,
-                        ))
+                        CopilotCLI._render_summary_panel(text_content, title="Summary")
 
     async def _render_existing_messages(self):
         """Fetch and render existing messages for the current thread."""
@@ -1031,15 +1032,7 @@ class CopilotCLI:
                                             sys.stdout.flush()
                                             streaming_ai = False
                                         
-                                        console.print(Panel(
-                                            summary_text,
-                                            title="[bold dim cyan]Summary & Reasoning[/]",
-                                            title_align="left",
-                                            border_style="dim cyan",
-                                            padding=(0, 1),
-                                            style="italic dim",
-                                            box=box.MINIMAL,
-                                        ))
+                                        CopilotCLI._render_summary_panel(summary_text)
                                         
                                         # Resume CIRI prompt for subsequent text
                                         if not streaming_ai:
