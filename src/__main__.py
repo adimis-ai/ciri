@@ -509,7 +509,7 @@ class CopilotCLI:
             last_thread_id = self.settings.get("thread_id")
             if last_thread_id:
                 self.current_thread = self.controller.get_thread(last_thread_id)
-            
+
             if not self.current_thread:
                 threads = self.controller.list_threads()
                 if threads:
@@ -577,7 +577,7 @@ class CopilotCLI:
         # Centered info: Model and Thread
         thread_title = self.current_thread["title"] if self.current_thread else "None"
         thread_id = self.current_thread["id"][:8] + "..." if self.current_thread else ""
-        
+
         info_text = Text()
         info_text.append("Model: ", style="bold cyan")
         info_text.append(f"{self.selected_model}", style="white")
@@ -600,7 +600,7 @@ class CopilotCLI:
         """Create a new thread without prompting for a title."""
         self.current_thread = self.controller.create_thread()
         self.is_new_thread = True
-        
+
         self.settings["thread_id"] = self.current_thread["id"]
         save_settings(self.settings)
 
@@ -648,7 +648,7 @@ class CopilotCLI:
             if 0 <= idx < len(threads):
                 self.current_thread = threads[idx]
                 self.controller.touch_thread(self.current_thread["id"])
-                
+
                 self.settings["thread_id"] = self.current_thread["id"]
                 save_settings(self.settings)
 
@@ -835,6 +835,8 @@ class CopilotCLI:
             CopilotCLI._render_todo_list(args)
         elif name == "task":
             CopilotCLI._render_task_call(args)
+        elif name == "simple_web_search":
+            CopilotCLI._render_web_search_call(args)
         elif name in CopilotCLI._FILESYSTEM_TOOLS:
             CopilotCLI._render_filesystem_tool_call(name, args)
         else:
@@ -854,6 +856,13 @@ class CopilotCLI:
                 )
             )
             console.print()
+
+    @staticmethod
+    def _render_web_search_call(args: dict):
+        """Render a simple_web_search tool call."""
+        query = args.get("query", "")
+        console.print(f"[bold cyan]🔍 Searching the web for:[/] [italic]{query}[/]")
+        console.print()
 
     @staticmethod
     def _render_todo_list(args: dict):
@@ -893,7 +902,7 @@ class CopilotCLI:
         subagent_type = args.get("subagent_type", "agent")
         description = args.get("description", "")
         console.print(
-            f"  [bold bright_magenta]🤖 Delegating to[/] [bold]{subagent_type}[/][bold bright_magenta]:[/] {description}"
+            f"[bold bright_magenta]🤖 Delegating to[/] [bold]{subagent_type}[/][bold bright_magenta]:[/] {description}"
         )
         console.print()
 
@@ -946,7 +955,7 @@ class CopilotCLI:
         """Render a filesystem tool call with a friendly, compact format."""
         if name == "ls":
             path = args.get("path", "/")
-            console.print(f"  [bold yellow]📂 Listing[/] [dim]{path}[/]")
+            console.print(f"[bold yellow]📂 Listing[/] [dim]{path}[/]")
             console.print()
 
         elif name == "read_file":
@@ -954,7 +963,7 @@ class CopilotCLI:
             offset = args.get("offset", 0)
             limit = args.get("limit", 100)
             loc = f" [dim](lines {offset + 1}–{offset + limit})[/]"
-            console.print(f"  [bold yellow]📄 Reading[/] [dim]{fpath}[/]{loc}")
+            console.print(f"[bold yellow]📄 Reading[/] [dim]{fpath}[/]{loc}")
             console.print()
 
         elif name == "write_file":
@@ -962,7 +971,7 @@ class CopilotCLI:
             content = args.get("content", "")
             lines = content.count("\n") + 1 if content else 0
             console.print(
-                f"  [bold yellow]📝 Creating[/] [dim]{fpath}[/] [dim]({lines} lines)[/]"
+                f"[bold yellow]📝 Creating[/] [dim]{fpath}[/] [dim]({lines} lines)[/]"
             )
             console.print()
 
@@ -989,7 +998,7 @@ class CopilotCLI:
             console.print(
                 Panel(
                     diff_body,
-                    title=f" [bold yellow]✏️  Editing[/] [dim]{fpath}[/]{suffix} ",
+                    title=f"[bold yellow]✏️  Editing[/] [dim]{fpath}[/]{suffix} ",
                     title_align="left",
                     border_style="yellow",
                     padding=(0, 1),
@@ -1003,7 +1012,7 @@ class CopilotCLI:
             path = args.get("path", "")
             in_path = f" in [dim]{path}[/]" if path and path != "/" else ""
             console.print(
-                f"  [bold yellow]🔍 Finding files[/] [bold]{pattern}[/]{in_path}"
+                f"[bold yellow]🔍 Finding files[/] [bold]{pattern}[/]{in_path}"
             )
             console.print()
 
@@ -1116,7 +1125,7 @@ class CopilotCLI:
             console.print(
                 Panel(
                     display,
-                    title=f" [bold bright_green]📂 {'Files' if tool_name == 'glob' else 'Directory'}[/] [dim]({len(lines)} items)[/] ",
+                    title=f"[bold bright_green]📂 {'Files' if tool_name == 'glob' else 'Directory'}[/] [dim]({len(lines)} items)[/] ",
                     title_align="left",
                     border_style="green",
                     padding=(0, 1),
@@ -1132,7 +1141,7 @@ class CopilotCLI:
             console.print(
                 Panel(
                     display,
-                    title=f" [bold bright_green]🔎 Search Results[/] [dim]({len(lines)} matches)[/] ",
+                    title=f"[bold bright_green]🔎 Search Results[/] [dim]({len(lines)} matches)[/] ",
                     title_align="left",
                     border_style="green",
                     padding=(0, 1),
@@ -1147,7 +1156,7 @@ class CopilotCLI:
             console.print(
                 Panel(
                     content,
-                    title=f" [bold bright_green]Tool Response[/] [bold]{tool_name}[/] ",
+                    title=f"[bold bright_green]Tool Response[/] [bold]{tool_name}[/] ",
                     title_align="left",
                     border_style="bright_green",
                     padding=(0, 1),
@@ -1161,9 +1170,11 @@ class CopilotCLI:
         """Render a ToolMessage (tool response) in a Panel box."""
         tool_name = getattr(msg, "name", None) or ""
 
-        # Dispatch filesystem tools to custom renderer
+        # Dispatch tools to custom renderers
         if tool_name in CopilotCLI._FILESYSTEM_TOOLS:
             CopilotCLI._render_filesystem_tool_response(msg)
+        elif tool_name == "simple_web_search":
+            CopilotCLI._render_web_search_response(msg)
         else:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             tc_id = getattr(msg, "tool_call_id", "") or ""
@@ -1193,6 +1204,83 @@ class CopilotCLI:
                 )
             )
             console.print()
+
+    @staticmethod
+    def _render_web_search_response(msg: ToolMessage):
+        """Render a simple_web_search tool response in a beautiful format."""
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+
+        # Simple parser for DuckDuckGo string output
+        import re
+
+        results = []
+
+        # Pattern to find all snippet:, title:, link: fields
+        # Note: We use a lookahead to ensure we don't consume the next field's key
+        pattern = r"(snippet|title|link): (.*?)(?=, (?:snippet|title|link): |$)"
+        matches = list(re.finditer(pattern, content, re.DOTALL))
+
+        current_result = {}
+        for match in matches:
+            key = match.group(1)
+            value = match.group(2).strip()
+
+            # If we see a snippet and already have one, it's a new result
+            if key == "snippet" and "snippet" in current_result:
+                results.append(current_result)
+                current_result = {}
+
+            current_result[key] = value
+
+        if current_result:
+            results.append(current_result)
+
+        if not results:
+            # Fallback if parsing fails - render as a simpler panel
+            console.print(
+                Panel(
+                    content,
+                    title="[bold bright_green]🔍 Web Search Response[/] ",
+                    title_align="left",
+                    border_style="bright_green",
+                    padding=(0, 1),
+                    box=box.ROUNDED,
+                )
+            )
+            return
+
+        table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+        table.add_column("Result")
+
+        for i, res in enumerate(results):
+            title = res.get("title", "No Title")
+            link = res.get("link", "#")
+            snippet = res.get("snippet", "")
+
+            res_text = Text()
+            res_text.append(f"{i+1}. {title}\n", style="bold cyan")
+            res_text.append(f"   {link}\n", style="dim underline")
+            if snippet:
+                # Clean up snippet (sometimes has leading dates/noise)
+                if len(snippet) > 300:
+                    snippet = snippet[:297] + "..."
+                res_text.append(f"   {snippet}\n", style="white")
+
+            table.add_row(res_text)
+            if i < len(results) - 1:
+                table.add_row(Rule(style="dim cyan"))
+
+        console.print(
+            Panel(
+                table,
+                title=f"[bold bright_green]🔍 Web Search Results[/] [dim]({len(results)} found)[/] ",
+                title_align="left",
+                border_style="bright_green",
+                padding=(1, 2),
+                box=box.ROUNDED,
+            )
+        )
+        console.print()
 
     @staticmethod
     def _render_system_message(msg: SystemMessage):
@@ -1786,7 +1874,7 @@ class CopilotCLI:
                     await self._cmd_change_browser_profile()
                 else:
                     console.print(
-                        f"  [yellow]Unknown command: {cmd}[/]. Type /help for available commands."
+                        f"[yellow]Unknown command: {cmd}[/]. Type /help for available commands."
                     )
 
                 console.print()

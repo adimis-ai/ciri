@@ -14,6 +14,7 @@ from dotenv import load_dotenv, set_key
 # Settings Persistence
 # ---------------------------------------------------------------------------
 
+
 def get_settings_path() -> Path:
     """Return the path to the project-local settings.json file."""
     return get_default_filesystem_root() / ".ciri" / "settings.json"
@@ -39,13 +40,16 @@ def save_settings(settings: dict):
     def _default(obj):
         if isinstance(obj, Path):
             return str(obj)
-        raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+        raise TypeError(
+            f"Object of type {obj.__class__.__name__} is not JSON serializable"
+        )
 
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=4, default=_default)
     except OSError as e:
         logger.error(f"Failed to save settings to {path}: {e}")
+
 
 try:
     import pathspec
