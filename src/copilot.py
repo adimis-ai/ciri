@@ -115,6 +115,7 @@ async def create_copilot(
 
     # --- Launch the user's real browser and get the CDP endpoint ---
     # Resolve the browser profile info for --user-data-dir / --profile-directory
+    cdp_endpoint: str | None = None
     profile_info = None
     if not is_wsl() and not browser_profile_directory:
         profile_info = resolve_browser_profile(browser_name, browser_profile_directory)
@@ -133,13 +134,20 @@ async def create_copilot(
                 real_user_data_dir = p["user_data_dir"]
                 break
 
-    cdp_endpoint = launch_browser_with_cdp(
-        browser_name=browser_name,
-        user_data_dir=real_user_data_dir,
-        profile_directory=browser_profile_directory,
-    )
+    try:
+        cdp_endpoint = launch_browser_with_cdp(
+            browser_name=browser_name,
+            user_data_dir=real_user_data_dir,
+            profile_directory=browser_profile_directory,
+        )
+    except RuntimeError:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "Could not launch browser with CDP — web browsing tools will be unavailable. "
+            "You can manually start Chrome/Edge with --remote-debugging-port=9222 and restart CIRI.",
+        )
 
-    if not crawler_browser_config:
+    if cdp_endpoint and not crawler_browser_config:
         crawler_browser_config = build_crawler_browser_config(
             cdp_url=cdp_endpoint,
         )

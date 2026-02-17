@@ -49,6 +49,7 @@ from .db import CopilotDatabase
 from .utils import (
     get_app_data_dir,
     detect_browser_profiles,
+    is_cdp_port_open,
     load_all_dotenv,
     get_default_filesystem_root,
     list_files_with_gitignore,
@@ -669,7 +670,14 @@ class CopilotCLI:
                 all_allowed=self.all_allowed,
                 **browser_kwargs,
             )
-        console.print("  [green]✓[/] Copilot agent built")
+        if is_cdp_port_open():
+            console.print("  [green]✓[/] Copilot agent built")
+        else:
+            console.print("  [green]✓[/] Copilot agent built")
+            console.print(
+                "  [yellow]⚠[/] Browser CDP not available — web browsing tools disabled. "
+                "Start Chrome/Edge with [cyan]--remote-debugging-port=9222[/] and restart CIRI."
+            )
 
         # 4. Controller
         with console.status("[cyan]Finalizing controller...[/]", spinner="dots"):

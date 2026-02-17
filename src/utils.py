@@ -608,8 +608,10 @@ def _kill_browser_processes(exe_path: str) -> bool:
 
         if killed:
             logger.info("Terminated existing %s processes", exe_basename)
-            # Give the OS a moment to release profile locks and ports
-            _time.sleep(2)
+            # Give the OS a moment to release profile locks and ports.
+            # Windows needs longer than Linux to release file locks on the
+            # user-data-dir and free the TCP port.
+            _time.sleep(4 if sys.platform == "win32" else 2)
         return killed
 
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
@@ -725,24 +727,38 @@ def launch_browser_with_cdp(
     else:
         kwargs["start_new_session"] = True
 
-    subprocess.Popen(
+    proc = subprocess.Popen(
         args,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         **kwargs,
     )
 
-    # Wait for the debugging port to become reachable
-    deadline = _time.monotonic() + timeout
+    # Wait for the debugging port to become reachable.
+    # Windows often needs extra time after a kill/relaunch cycle.
+    effective_timeout = timeout if sys.platform != "win32" else max(timeout, 30.0)
+    deadline = _time.monotonic() + effective_timeout
     while _time.monotonic() < deadline:
         if is_cdp_port_open(port):
             logger.info("CDP endpoint ready at %s", endpoint)
             return endpoint
+        # Check if the process died early
+        if proc.poll() is not None:
+            stderr_out = ""
+            if proc.stderr:
+                try:
+                    stderr_out = proc.stderr.read().decode(errors="replace")[:500]
+                except Exception:
+                    pass
+            raise RuntimeError(
+                f"Browser process exited immediately (code {proc.returncode}). "
+                f"stderr: {stderr_out or '(empty)'}"
+            )
         _time.sleep(0.5)
 
     raise RuntimeError(
         f"Browser was launched but CDP port {port} did not open within "
-        f"{timeout}s.  Check that no other process is blocking the port."
+        f"{effective_timeout}s.  Check that no other process is blocking the port."
     )
 
 

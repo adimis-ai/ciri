@@ -384,7 +384,7 @@ the answer, then provide supporting evidence.
 
 async def build_web_researcher_agent(
     model: BaseChatModel,
-    cdp_endpoint: str,
+    cdp_endpoint: Optional[str] = None,
     crawler_browser_config: Optional[CrawlerBrowserConfig] = None,
     all_allowed: bool = False,
 ) -> CompiledSubAgent:
@@ -397,20 +397,26 @@ async def build_web_researcher_agent(
     Args:
         model: The LLM to power the researcher agent.
         cdp_endpoint: The CDP HTTP endpoint (e.g. ``"http://localhost:9222"``).
+            When ``None``, Playwright interactive tools and the CDP-based
+            crawler are omitted; only DuckDuckGo search is available.
         crawler_browser_config: Custom ``crawl4ai.BrowserConfig``.  Built
             automatically when ``None``.
         all_allowed: If ``True``, all tool calls are auto-approved. If ``False``,
             certain tools require human approval via ``HumanInTheLoopMiddleware``.
     """
-    # --- Playwright interactive tools via CDP ---
-    tools: list[BaseTool] = await get_playwright_tools(cdp_endpoint=cdp_endpoint)
+    tools: list[BaseTool] = []
+
+    # --- Playwright interactive tools via CDP (requires a running browser) ---
+    if cdp_endpoint:
+        tools.extend(await get_playwright_tools(cdp_endpoint=cdp_endpoint))
 
     # --- crawl4ai crawler tool ---
-    if not crawler_browser_config:
-        crawler_browser_config = build_crawler_browser_config(
-            cdp_url=cdp_endpoint,
-        )
-    tools.append(build_web_crawler_tool(browser_config=crawler_browser_config))
+    if cdp_endpoint or crawler_browser_config:
+        if not crawler_browser_config:
+            crawler_browser_config = build_crawler_browser_config(
+                cdp_url=cdp_endpoint,
+            )
+        tools.append(build_web_crawler_tool(browser_config=crawler_browser_config))
 
     # --- DuckDuckGo search ---
     tools.append(DuckDuckGoSearchResults(name="simple_web_search"))
