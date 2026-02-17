@@ -7,7 +7,7 @@ const darkCodeTheme = require('prism-react-renderer/themes/dracula');
 module.exports = {
   title: 'CIRI Copilot',
   tagline: 'Contextual Intelligent Runtime Interface - Developer docs',
-  url: 'https://adimis.in',
+  url: 'https://ciri.adimis.in',
   baseUrl: '/',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
