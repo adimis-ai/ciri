@@ -1,37 +1,55 @@
 # Getting Started
 
-This quick start will get you a local development environment for CIRI.
+This guide will help you set up a local development environment for CIRI.
 
-Prerequisites:
-- Python 3.12+
-- Git
-- uv (https://docs.astral.sh/uv/) — package manager used in this repo
+## Prerequisites
 
-Install (Linux/macOS):
+- **Python 3.12+**
+- **Git**
+- **uv** (https://docs.astral.sh/uv/) — the recommended fast package manager for this repo
 
-1. Clone the repo:
+## Installation (Linux/macOS)
 
-   git clone git@github.com:YOUR_ORG/ciri.git
-   cd ciri
+1. **Clone the repository**:
+   ```bash
+   git clone git@github.com:adimis-ai/ciri-cli-v1.git
+   cd ciri-cli-v1
+   ```
 
-2. Install dependencies including dev deps:
-
+2. **Sync dependencies**:
+   ```bash
    uv sync --dev
+   ```
 
-3. Install in editable mode:
-
+3. **Install the CLI in editable mode**:
+   ```bash
    uv pip install -e .
+   ```
 
-4. Create a .env file with your model provider key(s), for example OpenRouter:
+4. **Configure Environment Variables**:
+   Create a `.env` file in the project root. At minimum, you need an API key for your chosen provider.
 
-   echo 'OPENROUTER_API_KEY=your-key' > .env
+   **If using OpenRouter (Default):**
+   ```bash
+   OPENROUTER_API_KEY=your_key_here
+   ```
 
-5. Run the CLI:
+   **If using a direct provider (e.g., Anthropic via LangChain):**
+   ```bash
+   LLM_GATEWAY_PROVIDER=langchain
+   ANTHROPIC_API_KEY=your_key_here
+   ```
 
+5. **Run CIRI**:
+   ```bash
    ciri
+   ```
 
-Windows notes:
-- Use PowerShell and set environment variables via $env:OPENROUTER_API_KEY
-- Install uv per README instructions
+## Windows Notes
+- Use PowerShell and set environment variables via `$env:VARIABLE_NAME = "value"`.
+- Install `uv` using the standalone installer or `pip`.
+- If you encounter browser errors, see the [Web Research guide](features/web-research.md).
 
-Next steps: read the Development section to learn how to run tests, linters, and create skills.
+## Next Steps
+- Run `/sync` inside the CLI to let Ciri analyze your workspace.
+- Check out the [Skills Guide](skills-guide.md) to add new capabilities.

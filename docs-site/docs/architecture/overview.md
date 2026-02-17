@@ -1,25 +1,34 @@
 # Architecture Overview
 
-CIRI is a single-package Python CLI application designed to be extensible with "skills", "toolkits", and "subagents". Key components:
+CIRI is a local-first, multi-agent orchestration system built on **LangChain/LangGraph**. It is designed to be highly extensible via pluggable components.
 
-- src/: main codebase and package
-  - __main__.py: CLI entrypoint and top-level command loop
-  - copilot.py: core copilot behavior and orchestration
-  - controller.py: command parsing and controller logic
-  - utils.py: helper functions (config, filesystem scanning, skill discovery)
-  - skills/: built-in skills and examples
-  - toolkit/: toolkit adapters
-  - subagents/: long-running or delegated agents
-- .ciri/: local user settings and installed skills/toolkits/subagents
-  - .ciri/settings.json: example settings
-  - .ciri/skills/: user-installed skills
+## Core Module Map
 
-The application relies on LangChain/LangGraph for LLM tooling and state
-management. Local encrypted storage (SQLite) is used for threads and checkpoints.
+- `src/__main__.py`: CLI entrypoint, UI rendering (Rich), and input handling (Prompt Toolkit).
+- `src/copilot.py`: The brain. Orchestrates the main agent graph and combines middlewares.
+- `src/backend.py`: Interface for tool execution and real-time output streaming.
+- `src/controller.py`: Logic for slash commands and thread management.
+- `src/serializers.py`: Serialization logic for checkpoints and state persistence.
 
-Design goals:
-- Local-first, privacy-aware operation
-- Extensible via pluggable skills and toolkits
-- CLI-first UX with streaming responses and structured tool execution
+## Key Middlewares
 
-See the components page for more details about each module.
+CIRI uses a sophisticated middleware stack to inject context and manage state:
+
+- **MemoryMiddleware**: Auto-loads long-term workspace context from `.ciri/memory/`.
+- **SkillsMiddleware**: Dynamically injects learned capabilities into the agent's toolset.
+- **SubAgentMiddleware**: Manages delegation to specialized agents (`web_researcher`, `skill_builder`, etc.).
+- **ToolkitInjectionMiddleware**: Hot-swaps MCP toolkits based on the task requirements.
+- **FilesystemMiddleware**: Provides scoped and safe access to the user's workspace.
+
+## Data Persistence
+
+- **CIRI Managed Data**: Located in `~/.ciri/` (Global) and `.ciri/` (Workspace-local).
+- **SQLite Database**: Stores conversation threads, message history, and LangGraph checkpoints.
+- **Checkpoints**: Enable "resume-where-you-left-off" capability even after restarts.
+
+## Design Goals
+
+1. **Autonomy**: High agency to plan and execute multi-step tasks.
+2. **Self-Evolution**: Ability to learn new tools and patterns over time.
+3. **Workspace-Aware**: Deep integration with local files, history, and domain context.
+4. **Safety**: Mandatory Human-in-the-Loop for critical actions.

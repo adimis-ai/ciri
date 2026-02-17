@@ -1,83 +1,36 @@
 # Architecture - Components (Deep Dive)
 
-This page documents the major components and their interactions with concrete references to the implementation in this repository.
+This page provides a high-resolution view of the CIRI internals and their implementation details.
 
-Key files to inspect in the source tree:
+## Detailed Boot Sequence
 
-- Entry & CLI loop: `src/__main__.py`
-- Copilot orchestration and agent builders: `src/copilot.py`
-- Controller & graph execution: `src/controller.py`
-- Utilities (skill discovery, env, filesystem): `src/utils.py`
-- Skills, toolkits, subagents folders: `src/skills/`, `src/toolkit/`, `src/subagents/`
+The CLI initialization follows a strict sequence to ensure all local capabilities are hot-loaded correctly:
 
-Design overview
+1. **CLI Start** (`src/__main__.py`): Loads `.env`, settings, and triggers `sync_default_skills()`.
+2. **Graph Compilation** (`create_copilot` in `src/copilot.py`):
+   - Initializes the `LLMConfig`.
+   - Connects to the **[Web Research](features/web-research.md)** CDP endpoint.
+   - Builds specialized builders (**Skill**, **Toolkit**, **SubAgent**, and **Trainer**).
+   - Injects **[Memory](features/memory.md)** and **[Skills](skills-guide.md)** via the middleware stack.
+3. **Controller Hand-off** (`src/controller.py`): Wraps the graph in a thread-safe execution interface.
 
-- The CLI boots via `src.__main__:main` (console script `ciri`) which loads env, settings, and constructs a Copilot graph using `create_copilot()` in `src/copilot.py`.
-- `create_copilot()` initializes the LLM, launches or connects to a browser CDP endpoint (if available), builds shared subagents (web researcher, skill/toolkit/subagent/trainer builders), pre-configures middleware (toolkits, skills), then compiles and returns a LangGraph state graph used by the controller.
+## The Middleware Stack
 
-Mermaid: high-level boot sequence (CLI → create_copilot → subagents)
+CIRI uses a recursive middleware pattern where each subagent inherits the capabilities of the main copilot:
 
-```mermaid
-sequenceDiagram
-  participant User
-  participant CLI as ciri (src/__main__)
-  participant Copilot as create_copilot()
-  participant Model
-  participant Browser
-  participant Subagents
-  User->>CLI: start `ciri`
-  CLI->>Copilot: call create_copilot()
-  Copilot->>Model: llm_config.init_langchain_model()
-  Copilot->>Browser: launch_browser_with_cdp() (optional)
-  Copilot->>Subagents: build_web_researcher_agent(), build_skill_builder_agent(),
-  Subagents-->>Copilot: built agents
-  Copilot->>CLI: return compiled graph
-  CLI->>User: interactive prompt ready
-```
+- `ToolkitInjectionMiddleware`: Discovers and injects MCP servers on-the-fly.
+- `SkillsMiddleware`: Scans `.ciri/skills/` and provides them as standard tools.
+- `MemoryMiddleware`: Reads workspace-local markdown files for long-term context.
+- `SubAgentMiddleware`: The "Router" that delegates to specialists like the `web_researcher`.
 
-Middleware & Execution stack
+## Advanced Implementation Notes
 
-- The Copilot populates a middleware stack used by subagents and the graph. Middlewares include `ToolRetryMiddleware`, `TodoListMiddleware`, `ToolkitInjectionMiddleware`, `SkillsMiddleware`, and other deepagents-provided middlewares like `FilesystemMiddleware`.
-- Middlewares are instantiated in `create_copilot()` and passed to agent builders. This allows each agent to have transparent access to skills and toolkit APIs.
+- **Self-Evolution** (`src/subagents/trainer_agent.py`): Uses a multi-step planning loop to design and implement new skills. See the **[Self-Evolution guide](internals/self-evolution.md)** for more.
+- **State Persistence** (`src/serializers.py`): Implements custom JSON serializers (`CiriJsonPlusSerializer`) to handle complex Python types (locks, threads, etc.) during checkpointing.
+- **Browser Automation** (`src/utils.py` and `src/toolkit/crawler.py`): Provides the CDP bridge that allows the `web_researcher` to drive your real browser.
 
-```mermaid
-flowchart LR
-  subgraph Copilot
-    A[Model] --> B[Middleware Stack]
-    B --> C[Toolkits]
-    B --> D[Skills]
-    B --> E[Subagents]
-  end
-  E --> F[Graph execution runtime]
-```
+## Developer Pointers
 
-Component responsibilities (short)
-
-- src/__main__.py — CLI loop, PromptToolkit integration, completers (see `CiriCompleter` class for @skills:, @files: triggers), environment persistence helpers (e.g., `_persist_env_var`) and API key prompting (`ensure_openrouter_api_key`).
-- src/copilot.py — build orchestration for the LangGraph-based copilot. Look at `create_copilot()` to trace how model, browser, middleware, and subagents are initialized and combined.
-- src/controller.py — controller wrapper around the compiled graph, exposing `run()`, `get_state()`, and thread management (create, list, delete threads) that connect to `src/db.py`.
-- src/utils.py — wide set of utilities: app data dirs, .env loading, browser profile copying, file listing with .gitignore awareness, and fetching models from OpenRouter.
-
-Mermaid: middleware & call-flow for a tool execution
-
-```mermaid
-sequenceDiagram
-  participant User
-  participant CopilotGraph
-  participant Middleware
-  participant Tool
-  User->>CopilotGraph: sends command (e.g., execute -> run shell tool)
-  CopilotGraph->>Middleware: TodoListMiddleware, ToolRetryMiddleware
-  Middleware->>Tool: invoke underlying tool (e.g., Shell, Playwright)
-  Tool-->>Middleware: result
-  Middleware-->>CopilotGraph: result or retry
-  CopilotGraph-->>User: streamed messages
-```
-
-Developer notes & pointers
-
-- If you want to modify the agent build or add custom middleware, edit `src/copilot.py:create_copilot()` where the model is initialized and subagent builders are awaited.
-- To inspect how messages and streamed chunks are serialized for UI, review `src/controller.py` and `src/serializers.py`.
-- For autocomplete triggers and filesystem-aware completion, inspect `CiriCompleter` in `src/__main__.py` (see `list_files_with_gitignore()` references in `src/utils.py`).
-
-This page is intentionally developer-focused — for real-world usage scenarios and sequence diagrams see the Use Cases page.
+- **Custom Middlewares**: Add new layers in `create_copilot()` within `src/copilot.py`.
+- **Tool Logic**: Implement new core tools as LangChain `@tool` functions and add them to the `merged_tools` list in `src/copilot.py`.
+- **Autocomplete**: Extend `CiriCompleter` in `src/__main__.py` to handle new interactive triggers.

@@ -1,14 +1,23 @@
-# Toolkits Guide
+# Toolkits Guide (MCP)
 
-Toolkits bridge CIRI to external systems or APIs.
+Toolkits in CIRI are built on the **Model Context Protocol (MCP)**. This allows Ciri to connect to any standard MCP server (like those for Google Drive, Slack, or Database connections).
 
-- Place toolkit adapters under src/toolkit/ or .ciri/toolkits/
-- Provide configuration and credentials via .env or per-tool config
-- Prefer small, well-tested adapters that map to a limited surface area
+## Architecture
 
-Example toolkit patterns:
-- API client wrapper exposing a simple call interface
-- Filesystem toolkit providing safe file read/write helpers
-- Browser automation adapters using Playwright
+CIRI's `ToolkitInjectionMiddleware` acts as an MCP client. It dynamically connects to servers defined in your configuration or in `.ciri/toolkits/`.
 
-Security note: never store secrets in the repo; use environment variables or OS keychains.
+## Adding a Toolkit
+
+### Using the Toolkit Builder
+Ask Ciri: "Build a toolkit to connect to my local PostgreSQL database at localhost:5432".
+Ciri will:
+1. Initialize an MCP server implementation.
+2. Store configuration in `.ciri/toolkits/<name>`.
+3. Test the connection.
+
+### Manual Addition
+You can add third-party MCP servers by adding them to your global configuration in `~/.ciri/settings.json`.
+
+## Toolkit Security
+- **Isolation**: Toolkits run in separate processes.
+- **Secrets**: Use environment variables (via `.env`) for credentials. Ciri will never hardcode keys into the toolkit code.

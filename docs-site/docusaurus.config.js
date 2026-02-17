@@ -15,6 +15,10 @@ module.exports = {
   organizationName: 'your-org',
   projectName: 'ciri',
   i18n: { defaultLocale: 'en', locales: ['en'] },
+  markdown: {
+    mermaid: true,
+  },
+  themes: ['@docusaurus/theme-mermaid'],
   presets: [
     [
       '@docusaurus/preset-classic',
@@ -27,18 +31,6 @@ module.exports = {
         theme: { customCss: require.resolve('./src/css/custom.css') },
       },
     ],
-  ],
-
-  // Site-level scripts: load mermaid from CDN then initialize
-  scripts: [
-    {
-      src: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
-      defer: true,
-    },
-    {
-      src: '/js/mermaid-init.js',
-      defer: true,
-    },
   ],
   themeConfig: {
     navbar: {
