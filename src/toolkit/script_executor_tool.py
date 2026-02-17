@@ -5,7 +5,7 @@ import shutil
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional, List, Literal, Annotated
+from typing import Optional, List, Literal, Annotated, Callable
 
 from pydantic import BaseModel, Field
 from langgraph.types import interrupt
@@ -57,6 +57,39 @@ class ScriptExecutorInput(BaseModel):
     )
 
 
+def _run_streaming(
+    cmd: list,
+    callback: Optional[Callable[[str], None]] = None,
+    timeout: int = 120,
+    cwd: str = None,
+    env: dict = None,
+) -> subprocess.CompletedProcess:
+    """Run a subprocess, streaming output line-by-line via callback."""
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        cwd=cwd,
+        env=env,
+    )
+    output_lines = []
+    try:
+        for line in process.stdout:
+            output_lines.append(line)
+            if callback:
+                callback(line.rstrip("\n"))
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise
+
+    stdout = "".join(output_lines)
+    return subprocess.CompletedProcess(
+        args=cmd, returncode=process.returncode, stdout=stdout, stderr=""
+    )
+
+
 def build_script_executor_tool(
     name: str = "execute_sandboxed_script",
     description: str = (
@@ -79,6 +112,7 @@ def build_script_executor_tool(
         "- To use scripts from skills: Copy them from the skill directory to the necessary structure inside a temp folder, then pass that folder as 'working_dir' so they are available in the sandbox.\n"
         "- Default 'cleanup=True' removes the environment but preserves contents of 'output_dir'."
     ),
+    output_callback: Optional[Callable[[str], None]] = None,
 ) -> StructuredTool:
     """Build a script executor tool with HITL approval via interrupt."""
 
@@ -137,6 +171,7 @@ def build_script_executor_tool(
                     working_dir=effective_working_dir,
                     output_dir=effective_output_dir,
                     timeout=timeout,
+                    output_callback=output_callback,
                 )
             elif language == "javascript":
                 result_parts = _execute_javascript(
@@ -146,6 +181,7 @@ def build_script_executor_tool(
                     working_dir=effective_working_dir,
                     output_dir=effective_output_dir,
                     timeout=timeout,
+                    output_callback=output_callback,
                 )
         except subprocess.TimeoutExpired:
             result_parts.append(f"ERROR: Script timed out after {timeout} seconds.")
@@ -174,12 +210,13 @@ def _execute_python(
     working_dir: Path,
     output_dir: Path,
     timeout: int,
+    output_callback: Optional[Callable[[str], None]] = None,
 ) -> List[str]:
     """Execute a Python script in an isolated venv."""
     results = []
     venv_dir = temp_base / ".venv"
 
-    # Create venv
+    # Create venv (fast, no streaming needed)
     logger.info(f"Creating Python venv at {venv_dir}")
     proc = subprocess.run(
         [sys.executable, "-m", "venv", str(venv_dir)],
@@ -203,30 +240,28 @@ def _execute_python(
     # Install dependencies
     if dependencies:
         logger.info(f"Installing Python deps: {dependencies}")
-        proc = subprocess.run(
+        proc = _run_streaming(
             [str(pip_bin), "install", *dependencies],
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 min for installs
+            callback=output_callback,
+            timeout=300,
             cwd=str(working_dir),
         )
         if proc.returncode != 0:
-            results.append(f"ERROR installing dependencies:\n{proc.stderr}")
+            results.append(f"ERROR installing dependencies:\n{proc.stdout}")
             return results
         results.append(f"Installed: {', '.join(dependencies)}")
 
         # Special handling: if playwright is a dependency, install browsers
         if any("playwright" in dep.lower() for dep in dependencies):
             logger.info("Installing Playwright browsers (chromium)")
-            proc = subprocess.run(
+            proc = _run_streaming(
                 [str(python_bin), "-m", "playwright", "install", "chromium"],
-                capture_output=True,
-                text=True,
+                callback=output_callback,
                 timeout=300,
             )
             if proc.returncode != 0:
                 results.append(
-                    f"WARNING: Playwright browser install failed: {proc.stderr}"
+                    f"WARNING: Playwright browser install failed: {proc.stdout}"
                 )
             else:
                 results.append("Playwright chromium browser installed.")
@@ -239,10 +274,9 @@ def _execute_python(
     env = os.environ.copy()
     env["CIRI_OUTPUT_DIR"] = str(output_dir)
     logger.info(f"Executing Python script: {script_path}")
-    proc = subprocess.run(
+    proc = _run_streaming(
         [str(python_bin), str(script_path)],
-        capture_output=True,
-        text=True,
+        callback=output_callback,
         timeout=timeout,
         cwd=str(working_dir),
         env=env,
@@ -251,8 +285,6 @@ def _execute_python(
     results.append(f"Exit code: {proc.returncode}")
     if proc.stdout.strip():
         results.append(f"STDOUT:\n{proc.stdout.strip()}")
-    if proc.stderr.strip():
-        results.append(f"STDERR:\n{proc.stderr.strip()}")
 
     # List output files
     output_files = _list_output_files(output_dir, temp_base)
@@ -269,6 +301,7 @@ def _execute_javascript(
     working_dir: Path,
     output_dir: Path,
     timeout: int,
+    output_callback: Optional[Callable[[str], None]] = None,
 ) -> List[str]:
     """Execute a JavaScript script with npm dependencies."""
     results = []
@@ -283,7 +316,7 @@ def _execute_javascript(
         results.append("ERROR: npm not found on PATH. Please install Node.js/npm.")
         return results
 
-    # Initialize npm project in temp_base
+    # Initialize npm project in temp_base (fast, no streaming needed)
     proc = subprocess.run(
         [npm_bin, "init", "-y"],
         capture_output=True,
@@ -298,15 +331,14 @@ def _execute_javascript(
     # Install dependencies
     if dependencies:
         logger.info(f"Installing npm deps: {dependencies}")
-        proc = subprocess.run(
+        proc = _run_streaming(
             [npm_bin, "install", *dependencies],
-            capture_output=True,
-            text=True,
+            callback=output_callback,
             timeout=300,
             cwd=str(temp_base),
         )
         if proc.returncode != 0:
-            results.append(f"ERROR installing dependencies:\n{proc.stderr}")
+            results.append(f"ERROR installing dependencies:\n{proc.stdout}")
             return results
         results.append(f"Installed: {', '.join(dependencies)}")
 
@@ -324,10 +356,9 @@ def _execute_javascript(
     env["NODE_PATH"] = str(temp_base / "node_modules")
 
     logger.info(f"Executing JavaScript script: {script_path}")
-    proc = subprocess.run(
+    proc = _run_streaming(
         [node_bin, str(script_path)],
-        capture_output=True,
-        text=True,
+        callback=output_callback,
         timeout=timeout,
         cwd=str(working_dir),
         env=env,
@@ -336,8 +367,6 @@ def _execute_javascript(
     results.append(f"Exit code: {proc.returncode}")
     if proc.stdout.strip():
         results.append(f"STDOUT:\n{proc.stdout.strip()}")
-    if proc.stderr.strip():
-        results.append(f"STDERR:\n{proc.stderr.strip()}")
 
     # List output files
     output_files = _list_output_files(output_dir, temp_base)

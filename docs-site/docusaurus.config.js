@@ -29,6 +29,17 @@ module.exports = {
     ],
   ],
 
+  // Site-level scripts: load mermaid from CDN then initialize
+  scripts: [
+    {
+      src: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
+      defer: true,
+    },
+    {
+      src: '/js/mermaid-init.js',
+      defer: true,
+    },
+  ],
   themeConfig: {
     navbar: {
       title: 'CIRI',

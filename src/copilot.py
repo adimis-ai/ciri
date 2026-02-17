@@ -363,7 +363,7 @@ async def create_copilot(
         copilot_middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
     merged_tools = list(tools or []) + [
-        build_script_executor_tool(),
+        build_script_executor_tool(output_callback=backend.output_callback),
         follow_up_with_human,
     ]
 
