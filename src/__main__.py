@@ -60,6 +60,7 @@ from .utils import (
     list_subagents,
     load_settings,
     save_settings,
+    sync_default_skills,
 )
 from .copilot import create_copilot
 from .controller import CopilotController
@@ -617,6 +618,7 @@ class CopilotCLI:
 
     async def setup(self):
         """Initialize database, checkpointer, model, and controller."""
+        sync_default_skills()
         load_all_dotenv()
         ensure_openrouter_api_key()
 

@@ -989,6 +989,38 @@ def list_skills(root: Path, prefix: str = "") -> List[str]:
     return sorted(set(skills))
 
 
+def sync_default_skills():
+    """
+    Sync default skills from src/skills to .ciri/skills in the current workspace.
+    Ensures that default skills are always available and up-to-date.
+    """
+    try:
+        root = get_default_filesystem_root()
+        target_skills_dir = root / ".ciri" / "skills"
+
+        # Determine the source skills directory (src/skills relative to this file)
+        source_skills_dir = Path(__file__).parent / "skills"
+
+        if not source_skills_dir.is_dir():
+            logger.warning(f"Source skills directory not found: {source_skills_dir}")
+            return
+
+        # Ensure .ciri/skills exists
+        target_skills_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Syncing default skills from {source_skills_dir} to {target_skills_dir}")
+
+        # Copy each skill directory from source to target
+        for item in source_skills_dir.iterdir():
+            if item.is_dir() and not item.name.startswith("__"):
+                target_skill_path = target_skills_dir / item.name
+                # Use shutil.copytree with dirs_exist_ok=True for upsert behavior
+                shutil.copytree(item, target_skill_path, dirs_exist_ok=True)
+
+    except Exception as e:
+        logger.error(f"Failed to sync default skills: {e}")
+
+
 def list_toolkits(root: Path, prefix: str = "") -> List[str]:
     """Discover all toolkit names from .ciri/toolkits directories."""
     toolkits = []
