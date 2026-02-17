@@ -8,6 +8,8 @@ import platform
 import subprocess
 import socket
 import time as _time
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Optional, List, Tuple, Any
 from dotenv import load_dotenv, set_key
@@ -504,9 +506,10 @@ def resolve_browser_profile(
 # CDP (Chrome DevTools Protocol) browser helpers
 # ---------------------------------------------------------------------------
 
-# Anti-detection / UX flags added when launching Chrome for CDP control
+# UX flags added when launching Chrome for CDP control.
+# NOTE: Do NOT add --disable-blink-features=AutomationControlled here;
+# modern Chrome versions show a warning banner for that flag.
 _CDP_LAUNCH_ARGS: list[str] = [
-    "--disable-blink-features=AutomationControlled",
     "--disable-infobars",
     "--no-first-run",
     "--no-default-browser-check",
@@ -559,13 +562,19 @@ def _get_browser_executable(browser_name: Optional[str] = None) -> Optional[str]
 
 
 def is_cdp_port_open(port: int = 9222) -> bool:
-    """Return ``True`` if something is already listening on *port*."""
+    """Return ``True`` if a CDP-enabled browser is listening on *port*.
+
+    Uses an HTTP GET to ``/json/version`` — the standard CDP discovery
+    endpoint — instead of a raw TCP socket.  This avoids IPv4/IPv6
+    mismatches on Windows where Chrome may bind to ``::1`` while a raw
+    socket connects to ``127.0.0.1``.
+    """
+    url = f"http://localhost:{port}/json/version"
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1)
-            s.connect(("127.0.0.1", port))
-            return True
-    except (ConnectionRefusedError, OSError):
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError, ValueError):
         return False
 
 
@@ -696,6 +705,7 @@ def launch_browser_with_cdp(
     args: list[str] = [
         exe,
         f"--remote-debugging-port={port}",
+        "--remote-debugging-address=127.0.0.1",
         *_CDP_LAUNCH_ARGS,
     ]
     if user_data_dir:
