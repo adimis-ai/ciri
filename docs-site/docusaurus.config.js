@@ -7,12 +7,12 @@ const darkCodeTheme = require('prism-react-renderer/themes/dracula');
 module.exports = {
   title: 'CIRI Copilot',
   tagline: 'Contextual Intelligent Runtime Interface - Developer docs',
-  url: 'https://example.com',
+  url: 'https://adimis.in',
   baseUrl: '/',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   favicon: 'img/favicon.ico',
-  organizationName: 'your-org',
+  organizationName: 'Adimis',
   projectName: 'ciri',
   i18n: { defaultLocale: 'en', locales: ['en'] },
   markdown: {
@@ -25,7 +25,7 @@ module.exports = {
       {
         docs: {
           sidebarPath: require.resolve('./sidebars.js'),
-          editUrl: 'https://github.com/your-org/ciri/tree/main/docs-site/',
+          editUrl: 'https://github.com/adimis-ai/ciri/tree/main/docs-site/',
         },
         blog: false,
         theme: { customCss: require.resolve('./src/css/custom.css') },
@@ -35,10 +35,9 @@ module.exports = {
   themeConfig: {
     navbar: {
       title: 'CIRI',
-      logo: { alt: 'CIRI Logo', src: 'img/logo.svg' },
       items: [
         { type: 'doc', docId: 'intro', position: 'left', label: 'Docs' },
-        { href: 'https://github.com/your-org/ciri', label: 'GitHub', position: 'right' },
+        { href: 'https://github.com/adimis-ai/ciri', label: 'GitHub', position: 'right' },
       ],
     },
     footer: {
@@ -46,9 +45,9 @@ module.exports = {
       links: [
         { title: 'Docs', items: [{ label: 'Getting Started', to: '/docs/getting-started' }] },
         { title: 'Community', items: [{ label: 'Contributing', to: '/docs/contributing' }] },
-        { title: 'More', items: [{ label: 'GitHub', href: 'https://github.com/your-org/ciri' }] },
+        { title: 'More', items: [{ label: 'GitHub', href: 'https://github.com/adimis-ai/ciri' }] },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Your Org.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Adimis.`,
     },
     prism: { theme: lightCodeTheme, darkTheme: darkCodeTheme },
   },
