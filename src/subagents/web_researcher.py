@@ -591,11 +591,9 @@ async def build_web_researcher_agent(
         runnable=agent,
         name="web_research_agent",
         description=(
-            "A sub-agent for in-depth web research using the user's real "
-            "browser via CDP to bypass bot detection.  Can search the web, "
-            "crawl pages for clean markdown content, and interactively "
-            "browse sites (click, fill forms, extract data).  Effective on "
-            "guarded platforms like LinkedIn, Twitter, and other sites that "
-            "block automated access."
+            "Web research agent using the user's real browser (cookies, sessions) "
+            "via CDP. Can search, crawl pages to markdown, and interactively browse "
+            "JS-heavy/authenticated sites. Invoke for any internet lookup, API doc "
+            "research, or live data extraction."
         ),
     )

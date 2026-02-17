@@ -85,6 +85,7 @@ COMMANDS_HELP = {
     "/delete-thread": "Delete a thread",
     "/change-model": "Change the active LLM model",
     "/change-browser-profile": "Change the default browser profile",
+    "/sync": "Analyze workspace & self-train",
     "/threads": "List all threads",
     "/help": "Show this help message",
     "/exit": "Exit CIRI",
@@ -1001,6 +1002,211 @@ class CopilotCLI:
             )
         else:
             console.print("  [dim]Browser profile unchanged.[/]")
+
+    # ── /sync Command ─────────────────────────────────────────────────────
+
+    def _scan_workspace_for_sync(self) -> str:
+        """Scan the workspace root and build a structured summary for the trainer.
+
+        Excludes .ciri directories (root and nested for monorepos), .git, and
+        common non-project directories. Returns a formatted string describing
+        the workspace structure, or empty string if nothing meaningful is found.
+        """
+        root = get_default_filesystem_root()
+
+        # Directories to always skip
+        SKIP_DIRS = {
+            ".ciri", ".git", ".hg", ".svn",
+            "__pycache__", ".pytest_cache", ".mypy_cache", ".tox",
+            "node_modules", ".npm", ".next", ".nuxt",
+            ".venv", "venv", "env",
+            ".idea", ".vscode",
+            "build", "dist", "out", "target",
+            ".gradle", ".m2", "vendor", "bower_components",
+        }
+
+        # Key project indicator files
+        PROJECT_INDICATORS = {
+            "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
+            "pom.xml", "build.gradle", "Makefile", "CMakeLists.txt",
+            "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+            "Gemfile", "setup.py", "setup.cfg", "requirements.txt",
+            ".github", ".gitlab-ci.yml", "Jenkinsfile",
+            "README.md", "README.rst", "README.txt",
+            "tsconfig.json", "webpack.config.js", "vite.config.ts",
+            ".env.example", "Procfile", "Taskfile.yml",
+        }
+
+        top_level_items = []
+        project_files_found = []
+        dir_tree_lines = []
+
+        try:
+            for entry in sorted(root.iterdir()):
+                name = entry.name
+                if name in SKIP_DIRS or name.startswith(".ciri"):
+                    continue
+
+                if entry.is_file():
+                    top_level_items.append(f"  {name}")
+                    if name in PROJECT_INDICATORS:
+                        project_files_found.append(name)
+                elif entry.is_dir():
+                    # Check if this subdir has its own .ciri (monorepo package)
+                    has_own_ciri = (entry / ".ciri").is_dir()
+                    marker = " [monorepo-package]" if has_own_ciri else ""
+
+                    # Count immediate children (rough size indicator)
+                    try:
+                        child_count = sum(
+                            1 for c in entry.iterdir()
+                            if c.name not in SKIP_DIRS and not c.name.startswith(".")
+                        )
+                    except PermissionError:
+                        child_count = 0
+
+                    dir_tree_lines.append(f"  {name}/{marker} ({child_count} items)")
+                    top_level_items.append(f"  {name}/")
+
+                    # Check for project indicators inside subdirs
+                    for indicator in PROJECT_INDICATORS:
+                        if (entry / indicator).exists():
+                            project_files_found.append(f"{name}/{indicator}")
+        except PermissionError:
+            pass
+
+        return top_level_items, project_files_found, dir_tree_lines
+
+    async def _cmd_sync(self):
+        """Analyze the workspace and auto-generate a training message for Ciri."""
+        root = get_default_filesystem_root()
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold]Scanning workspace:[/] {root}",
+                style="cyan",
+                padding=(0, 1),
+            )
+        )
+
+        top_level_items, project_files_found, dir_tree_lines = (
+            self._scan_workspace_for_sync()
+        )
+
+        # If workspace is empty or has no meaningful content
+        if not project_files_found and not dir_tree_lines:
+            console.print(
+                "  [yellow]No meaningful project files detected in the workspace.[/]"
+            )
+            console.print(
+                "  [dim]Ciri will ask you what you'd like to build.[/]"
+            )
+            console.print()
+
+            sync_message = (
+                f"I'm running /sync on my workspace at `{root}`. "
+                "The workspace appears to be empty or has no recognizable project "
+                "files (no package.json, pyproject.toml, Cargo.toml, Makefile, etc.). "
+                "Use the `follow_up_with_human` tool to ask the user:\n"
+                "1. What kind of project are they working on or planning to build?\n"
+                "2. What languages/frameworks will they use?\n"
+                "3. What capabilities should Ciri learn to help them?\n"
+                "Then based on their answers, use the trainer_agent to create "
+                "appropriate skills, toolkits, or subagents for the project."
+            )
+        else:
+            # Build a rich workspace summary
+            console.print(f"  [green]Found {len(project_files_found)} project indicator(s)[/]")
+            if dir_tree_lines:
+                console.print(f"  [green]Found {len(dir_tree_lines)} directories[/]")
+            console.print()
+
+            structure_summary = "## Workspace Structure\n"
+            if dir_tree_lines:
+                structure_summary += "### Directories\n" + "\n".join(dir_tree_lines) + "\n"
+
+            indicators_summary = ""
+            if project_files_found:
+                indicators_summary = (
+                    "### Project Files Detected\n"
+                    + "\n".join(f"  - {f}" for f in project_files_found)
+                    + "\n"
+                )
+
+            sync_message = (
+                f"I'm running /sync on my workspace at `{root}`. Analyze this project "
+                "and train me to work on it effectively. Here's what I found:\n\n"
+                f"{structure_summary}\n{indicators_summary}\n"
+                "**Your task as the trainer_agent:**\n"
+                "1. Read the key project files (package.json, pyproject.toml, README, "
+                "Dockerfiles, CI configs, etc.) to deeply understand the project.\n"
+                "2. Identify the languages, frameworks, build system, test setup, and "
+                "deployment patterns.\n"
+                "3. Check what skills/toolkits/subagents already exist in .ciri/.\n"
+                "4. Create or update skills that teach me:\n"
+                "   - The project's conventions (code style, patterns, architecture)\n"
+                "   - How to build, test, lint, and deploy\n"
+                "   - Domain-specific workflows relevant to this codebase\n"
+                "5. If this is a monorepo, create per-package skills as needed.\n"
+                "6. If anything is unclear about the project, use `follow_up_with_human` "
+                "to ask the user for clarification."
+            )
+
+        # Send as a regular message through the normal flow
+        # This ensures it goes through the agent with full streaming/interrupt support
+        console.print(
+            Panel(
+                "[bold cyan]Starting workspace sync...[/]\n"
+                "[dim]Ciri will analyze the project and train herself accordingly.[/]",
+                style="cyan",
+                padding=(0, 1),
+            )
+        )
+        console.print()
+
+        # Auto-title the thread if new
+        if self.is_new_thread:
+            title = "/sync — Workspace Training"
+            self.controller.rename_thread(self.current_thread["id"], title)
+            self.current_thread["title"] = title
+            self.is_new_thread = False
+
+        # Stream the response like a normal message
+        self.controller.touch_thread(self.current_thread["id"])
+        try:
+            self._streaming = True
+            stream_task = asyncio.create_task(
+                self._stream_response(
+                    {"messages": [HumanMessage(content=sync_message)]}
+                )
+            )
+
+            loop = asyncio.get_running_loop()
+
+            def _cancel_stream():
+                if not stream_task.done():
+                    stream_task.cancel()
+
+            try:
+                loop.add_signal_handler(signal.SIGINT, _cancel_stream)
+            except NotImplementedError:
+                pass
+
+            try:
+                await stream_task
+            except asyncio.CancelledError:
+                self._last_ctrl_c_time = time.monotonic()
+                console.print("\n  [yellow]Sync interrupted.[/]")
+            finally:
+                try:
+                    loop.remove_signal_handler(signal.SIGINT)
+                except NotImplementedError:
+                    pass
+        except Exception as e:
+            console.print(f"\n  [bold red]Error during sync:[/] {e}")
+        finally:
+            self._streaming = False
 
     # ── Message Rendering ─────────────────────────────────────────────────
 
@@ -2132,6 +2338,8 @@ class CopilotCLI:
                     await self._cmd_change_model()
                 elif cmd == "/change-browser-profile":
                     await self._cmd_change_browser_profile()
+                elif cmd == "/sync":
+                    await self._cmd_sync()
                 else:
                     console.print(
                         f"[yellow]Unknown command: {cmd}[/]. Type /help for available commands."
