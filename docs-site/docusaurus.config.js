@@ -34,7 +34,6 @@ module.exports = {
   ],
   themeConfig: {
     navbar: {
-      title: 'CIRI',
       items: [
         { type: 'doc', docId: 'intro', position: 'left', label: 'Docs' },
         { href: 'https://github.com/adimis-ai/ciri', label: 'GitHub', position: 'right' },
