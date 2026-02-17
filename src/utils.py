@@ -569,20 +569,87 @@ def is_cdp_port_open(port: int = 9222) -> bool:
         return False
 
 
+def _kill_browser_processes(exe_path: str) -> bool:
+    """Terminate running Chrome / Edge processes that match *exe_path*.
+
+    On Windows this uses ``taskkill /IM <name>``.  On Linux/macOS it uses
+    ``pkill -f``.  Returns ``True`` if any processes were found and a
+    termination signal was sent.
+    """
+    exe_basename = Path(exe_path).name.lower()  # e.g. "chrome.exe", "google-chrome-stable"
+
+    try:
+        if sys.platform == "win32":
+            # taskkill is reliable on Windows for closing all Chrome processes
+            result = subprocess.run(
+                ["taskkill", "/F", "/IM", exe_basename],
+                capture_output=True,
+                timeout=10,
+            )
+            killed = result.returncode == 0
+        else:
+            # On Linux/macOS, pkill by process name
+            # Strip paths — match on the binary name
+            result = subprocess.run(
+                ["pkill", "-f", exe_basename],
+                capture_output=True,
+                timeout=10,
+            )
+            killed = result.returncode == 0
+
+        if killed:
+            logger.info("Terminated existing %s processes", exe_basename)
+            # Give the OS a moment to release profile locks and ports
+            _time.sleep(2)
+        return killed
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.warning("Could not kill browser processes: %s", exc)
+        return False
+
+
+def _is_browser_running(exe_path: str) -> bool:
+    """Return ``True`` if a process matching *exe_path* is currently running."""
+    exe_basename = Path(exe_path).name.lower()
+
+    try:
+        if sys.platform == "win32":
+            result = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {exe_basename}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return exe_basename in result.stdout.lower()
+        else:
+            result = subprocess.run(
+                ["pgrep", "-f", exe_basename],
+                capture_output=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
 def launch_browser_with_cdp(
     port: int = 9222,
     browser_name: Optional[str] = None,
     user_data_dir: Optional[Path] = None,
     profile_directory: Optional[str] = None,
     *,
-    timeout: float = 15.0,
+    timeout: float = 20.0,
 ) -> str:
     """Ensure Chrome/Edge is running with ``--remote-debugging-port`` and
     return the CDP HTTP endpoint (``http://localhost:<port>``).
 
-    If the port is already open we assume the browser is already running and
-    simply return the endpoint.  Otherwise we launch the browser as a detached
-    subprocess.
+    If the port is already open we assume the browser is already running with
+    CDP and return the endpoint immediately.
+
+    If the browser is running *without* the debug port, it is terminated and
+    relaunched with the flag — this is necessary because Chrome's single-
+    instance model causes a second launch to simply open a new window inside
+    the existing (non-debug) process.
 
     Args:
         port: TCP port for Chrome DevTools Protocol.
@@ -602,7 +669,7 @@ def launch_browser_with_cdp(
     """
     endpoint = f"http://localhost:{port}"
 
-    # Already running? Return immediately.
+    # Already listening on the debug port? Return immediately.
     if is_cdp_port_open(port):
         logger.info("CDP port %d already open — reusing existing browser", port)
         return endpoint
@@ -613,6 +680,18 @@ def launch_browser_with_cdp(
             "Could not find a Chrome or Edge installation.  "
             "Please install Google Chrome or Microsoft Edge."
         )
+
+    # Chrome/Edge single-instance guard:  if Chrome is already running
+    # *without* the debug port, a second launch with --remote-debugging-port
+    # just asks the existing instance to open a new window (ignoring the
+    # debug flag).  We must close the existing instance first.
+    if _is_browser_running(exe):
+        logger.info(
+            "Browser is running without CDP — closing it to relaunch with "
+            "--remote-debugging-port=%d",
+            port,
+        )
+        _kill_browser_processes(exe)
 
     args: list[str] = [
         exe,
@@ -649,7 +728,7 @@ def launch_browser_with_cdp(
         if is_cdp_port_open(port):
             logger.info("CDP endpoint ready at %s", endpoint)
             return endpoint
-        _time.sleep(0.3)
+        _time.sleep(0.5)
 
     raise RuntimeError(
         f"Browser was launched but CDP port {port} did not open within "
