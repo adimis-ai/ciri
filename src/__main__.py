@@ -235,8 +235,8 @@ def ensure_openrouter_api_key() -> None:
 
 
 def _get_models_from_env() -> List[str]:
-    """Get model list from LITE_LLM_MODEL_LIST env variable."""
-    raw = os.getenv("LITE_LLM_MODEL_LIST", "")
+    """Get model list from LLM_MODEL_LIST or LITE_LLM_MODEL_LIST env variable."""
+    raw = os.getenv("LLM_MODEL_LIST") or os.getenv("LITE_LLM_MODEL_LIST", "")
     if not raw.strip():
         return []
     try:

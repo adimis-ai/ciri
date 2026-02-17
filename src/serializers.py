@@ -41,6 +41,9 @@ class LLMConfig(BaseModel):
         description="The language model to use, e.g. 'openai/gpt-5-mini' or 'openai:gpt-4'."
     )
     model_kwargs: Dict[str, Any] = Field(default_factory=dict)
+    gateway_provider: Optional[str] = Field(
+        default_factory=lambda: os.getenv("LLM_GATEWAY_PROVIDER", "openrouter")
+    )
 
     @cached_property
     def _parsed_model(self) -> Tuple[str | None, str]:
@@ -103,6 +106,10 @@ class LLMConfig(BaseModel):
         """
         provider, model_name = self._parsed_model
         config = self._resolved_api_config
+
+        # If explicitly set to 'langchain', use init_chat_model directly
+        if self.gateway_provider == "langchain":
+            return init_chat_model(model=self.model, **config)
 
         if self._is_openrouter:
             # avoid dict rebuild via pop-free filtering
