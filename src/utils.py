@@ -160,6 +160,29 @@ def find_windows_bash() -> tuple[str, ...] | None:
     return None
 
 
+def get_core_harness_dir() -> Path:
+    """Return the OS-level core harness directory, shared across all projects.
+
+    This is the persistent home for default skills, reusable toolkits, global
+    subagent configs, and cross-project memory.  It lives inside
+    get_app_data_dir() so it shares the same OS-level root as the database
+    and .env file:
+      Linux   : ~/.local/share/ciri/
+      macOS   : ~/Library/Application Support/Ciri/
+      Windows : ~/AppData/Local/Ciri/
+
+    Subdirectories created on first call:
+      skills/    — default skills (synced from src/skills/ at startup)
+      toolkits/  — core MCP toolkit servers
+      subagents/ — core subagent configs
+      memory/    — global / cross-project memory files
+    """
+    root = get_app_data_dir()
+    for subdir in ("skills", "toolkits", "subagents", "memory"):
+        (root / subdir).mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def get_default_filesystem_root() -> Path:
     """Return the current working directory as the default filesystem root."""
     return Path(os.getcwd()).resolve()
@@ -970,9 +993,22 @@ def list_folders_with_gitignore(root: Path, prefix: str = "") -> List[str]:
 
 
 def list_skills(root: Path, prefix: str = "") -> List[str]:
-    """Discover all skill names from .ciri/skills directories."""
+    """Discover all skill names from core harness and .ciri/skills directories."""
     skills = []
 
+    # 1. Core harness skills (OS-level, shared across all projects)
+    try:
+        core_skills_dir = get_core_harness_dir() / "skills"
+        if core_skills_dir.is_dir():
+            for item in core_skills_dir.iterdir():
+                if item.is_dir():
+                    skill_name = item.name
+                    if prefix == "" or skill_name.startswith(prefix):
+                        skills.append(skill_name)
+    except Exception:
+        pass
+
+    # 2. Project harness skills (all .ciri/skills dirs under root)
     try:
         for ciri_dir in root.rglob(".ciri"):
             if ciri_dir.is_dir():
@@ -990,13 +1026,15 @@ def list_skills(root: Path, prefix: str = "") -> List[str]:
 
 
 def sync_default_skills():
-    """
-    Sync default skills from src/skills to .ciri/skills in the current workspace.
-    Ensures that default skills are always available and up-to-date.
+    """Sync default skills from src/skills to the core harness skills directory.
+
+    Target is get_core_harness_dir() / "skills" (the OS-level persistent
+    directory) rather than the project-local <cwd>/.ciri/skills/.  This ensures
+    default skills are available globally, accessible from any project on the
+    user's machine.
     """
     try:
-        root = get_default_filesystem_root()
-        target_skills_dir = root / ".ciri" / "skills"
+        target_skills_dir = get_core_harness_dir() / "skills"
 
         # Determine the source skills directory (src/skills relative to this file)
         source_skills_dir = Path(__file__).parent / "skills"
@@ -1005,9 +1043,7 @@ def sync_default_skills():
             logger.warning(f"Source skills directory not found: {source_skills_dir}")
             return
 
-        # Ensure .ciri/skills exists
-        target_skills_dir.mkdir(parents=True, exist_ok=True)
-
+        # target_skills_dir already created by get_core_harness_dir()
         logger.info(f"Syncing default skills from {source_skills_dir} to {target_skills_dir}")
 
         # Copy each skill directory from source to target
@@ -1022,9 +1058,22 @@ def sync_default_skills():
 
 
 def list_toolkits(root: Path, prefix: str = "") -> List[str]:
-    """Discover all toolkit names from .ciri/toolkits directories."""
+    """Discover all toolkit names from core harness and .ciri/toolkits directories."""
     toolkits = []
 
+    # 1. Core harness toolkits
+    try:
+        core_toolkits_dir = get_core_harness_dir() / "toolkits"
+        if core_toolkits_dir.is_dir():
+            for item in core_toolkits_dir.iterdir():
+                if item.is_dir():
+                    toolkit_name = item.name
+                    if prefix == "" or toolkit_name.startswith(prefix):
+                        toolkits.append(toolkit_name)
+    except Exception:
+        pass
+
+    # 2. Project harness toolkits (all .ciri/toolkits dirs under root)
     try:
         for ciri_dir in root.rglob(".ciri"):
             if ciri_dir.is_dir():
@@ -1042,9 +1091,22 @@ def list_toolkits(root: Path, prefix: str = "") -> List[str]:
 
 
 def list_subagents(root: Path, prefix: str = "") -> List[str]:
-    """Discover all subagent names from .ciri/subagents/*.{yaml,yml,json}."""
+    """Discover all subagent names from core harness and .ciri/subagents directories."""
     subagents = []
 
+    # 1. Core harness subagents
+    try:
+        core_subagents_dir = get_core_harness_dir() / "subagents"
+        if core_subagents_dir.is_dir():
+            for ext in ["*.yaml", "*.yml", "*.json"]:
+                for config_file in core_subagents_dir.glob(ext):
+                    subagent_name = config_file.stem
+                    if prefix == "" or subagent_name.startswith(prefix):
+                        subagents.append(subagent_name)
+    except Exception:
+        pass
+
+    # 2. Project harness subagents (all .ciri/subagents dirs under root)
     try:
         for ciri_dir in root.rglob(".ciri"):
             if ciri_dir.is_dir():

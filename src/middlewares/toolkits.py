@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, Union
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from ..utils import get_default_filesystem_root
+from ..utils import get_default_filesystem_root, get_core_harness_dir
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +95,37 @@ class ToolkitInjectionMiddleware(AgentMiddleware):
             logger.error(f"Error refreshing toolkits (async): {e}")
 
     def _discover_toolkits(self, root: Path) -> List[Path]:
-        """Discover toolkits in .ciri/toolkits and recursively in project root."""
-        discovered = []
+        """Discover toolkits: core harness first, then project .ciri/toolkits, then recursive scan.
 
-        # 1. Check all .ciri/toolkits directories
+        Ordering:
+        1. Core harness: get_core_harness_dir() / "toolkits" / <each-toolkit-dir>
+        2. Project harness: all <root>/**/.ciri/toolkits/<each-toolkit-dir>
+        3. Recursive project scan: toolkits found directly in the project tree
+
+        De-duplication: by resolved absolute path using an ordered dict with
+        first-insertion-wins semantics — core harness toolkits are never displaced.
+        """
+        # Use an ordered dict to preserve insertion order while de-duplicating
+        # (first occurrence wins — core harness entries cannot be overridden)
+        unique_toolkits: dict = {}
+
+        # 1. Core harness toolkits
+        try:
+            core_toolkits_dir = get_core_harness_dir() / "toolkits"
+            if core_toolkits_dir.is_dir():
+                for tk_dir in sorted(core_toolkits_dir.iterdir()):
+                    if tk_dir.is_dir() and (
+                        (tk_dir / "pyproject.toml").exists()
+                        or (tk_dir / "package.json").exists()
+                    ):
+                        if self._is_mcp_toolkit(tk_dir):
+                            resolved = str(tk_dir.resolve())
+                            if resolved not in unique_toolkits:
+                                unique_toolkits[resolved] = tk_dir.resolve()
+        except Exception as e:
+            logger.error(f"Error scanning core harness toolkits: {e}")
+
+        # 2. Project harness: all .ciri/toolkits directories
         try:
             for ciri_dir in root.rglob(".ciri"):
                 # Ensure we are not inside another .ciri folder
@@ -113,20 +140,23 @@ class ToolkitInjectionMiddleware(AgentMiddleware):
                                 or (tk_dir / "package.json").exists()
                             ):
                                 if self._is_mcp_toolkit(tk_dir):
-                                    discovered.append(tk_dir.resolve())
+                                    resolved = str(tk_dir.resolve())
+                                    if resolved not in unique_toolkits:
+                                        unique_toolkits[resolved] = tk_dir.resolve()
         except Exception as e:
             logger.error(f"Error scanning for toolkits in .ciri directories: {e}")
 
-        # 2. Recursive scan excluding .ciri directories
+        # 3. Recursive scan of project tree (excluding .ciri directories)
         try:
             for item in root.iterdir():
                 if item.is_dir() and item.name != ".ciri":
-                    discovered.extend(self._recursive_toolkit_discovery(item))
+                    for tk in self._recursive_toolkit_discovery(item):
+                        resolved = str(tk.resolve())
+                        if resolved not in unique_toolkits:
+                            unique_toolkits[resolved] = tk
         except Exception as e:
             logger.error(f"Error during recursive toolkit discovery: {e}")
 
-        # De-duplicate by path
-        unique_toolkits = {str(p): p for p in discovered}
         return list(unique_toolkits.values())
 
     def _recursive_toolkit_discovery(self, path: Path) -> List[Path]:

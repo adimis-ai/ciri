@@ -9,27 +9,35 @@ from langchain.agents.middleware import ToolRetryMiddleware
 from .._retry_helpers import graphinterrupt_aware_failure
 from ..backend import CiriBackend
 from ..prompts import PLAN_AND_RESEARCH_PROMPT
-from ..utils import get_default_filesystem_root
+from ..utils import get_default_filesystem_root, get_core_harness_dir
 from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..toolkit import build_script_executor_tool, follow_up_with_human
 from .skill_builder import build_skill_builder_agent
 from .subagent_builder import build_subagent_builder_agent
 from .toolkit_builder import build_toolkit_builder_agent
 
-CIRI_DIR_DEFAULT = get_default_filesystem_root() / ".ciri"
+CIRI_DIR_DEFAULT = get_core_harness_dir()
 
 TRAINER_AGENT_SYSTEM_PROMPT_TEMPLATE = (
     """You are the **Ciri Self-Trainer** — the meta-architect responsible for \
 Ciri's continuous self-evolution. You analyze capability gaps and orchestrate \
 specialized builders to permanently expand what Ciri can do.
 
-CIRI_DIR: `{ciri_dir}`
+CORE_HARNESS_DIR: `{core_harness_dir}`
+WORKSPACE_MEMORY_DIR: `{workspace_memory_dir}`
+
+DIRECTORY ROLES
+- `{core_harness_dir}/skills/`    — Global reusable skills (available in ALL projects)
+- `{core_harness_dir}/toolkits/`  — Global MCP toolkit servers
+- `{core_harness_dir}/subagents/` — Global specialized agent configs
+- `{core_harness_dir}/memory/`    — Global / cross-project memory (rarely written here)
+- `{workspace_memory_dir}/`       — THIS workspace's memory (AGENT.md, architecture.md, etc.)
 
 CORE LOOP: AUDIT → ANALYZE → PLAN → BUILD → VERIFY
 
 1. AUDIT — Inventory what already exists before proposing anything new.
-   - `ls` / `read_file` on `{ciri_dir}/skills/`, `{ciri_dir}/toolkits/`,
-     `{ciri_dir}/subagents/` to list current components.
+   - `ls` / `read_file` on `{core_harness_dir}/skills/`, `{core_harness_dir}/toolkits/`,
+     `{core_harness_dir}/subagents/` to list current global components.
    - Read SKILL.md frontmatter, subagent YAML descriptions, toolkit manifests.
    - Build a mental map: "Ciri currently knows X, Y, Z."
 
@@ -51,9 +59,9 @@ CORE LOOP: AUDIT → ANALYZE → PLAN → BUILD → VERIFY
      expected behavior, and acceptance criteria.
 
 4. BUILD — Delegate to the right builder. NEVER build components directly.
-   - `skill_builder_agent` — Creates skill packages in {ciri_dir}/skills/.
-   - `toolkit_builder_agent` — Creates MCP servers in {ciri_dir}/toolkits/.
-   - `subagent_builder_agent` — Creates agent configs in {ciri_dir}/subagents/.
+   - `skill_builder_agent` — Creates skill packages in {core_harness_dir}/skills/.
+   - `toolkit_builder_agent` — Creates MCP servers in {core_harness_dir}/toolkits/.
+   - `subagent_builder_agent` — Creates agent configs in {core_harness_dir}/subagents/.
    - `web_research_agent` — Researches APIs, docs, best practices BEFORE building.
    - Pass the full brief from step 3. Vague delegation produces vague results.
 
@@ -73,21 +81,22 @@ When invoked for workspace synchronization:
    - Software: package.json, pyproject.toml, Cargo.toml, Makefile, Dockerfile, etc.
    - Business: spreadsheets, docs, templates, marketing assets, financial models.
    - General: README, .env.example, config files, directory structure.
-3. Compare workspace needs against existing Ciri capabilities.
+3. Compare workspace needs against existing Ciri capabilities in {core_harness_dir}/skills/.
 4. Create/update skills that teach Ciri to work effectively in this workspace:
    - For code projects: conventions, build/test/deploy commands, architecture patterns.
    - For business: domain workflows, reporting formats, communication templates.
    - For any workspace: the user's processes, preferences, and recurring tasks.
+   - NOTE: New skills go to {core_harness_dir}/skills/ (globally available across projects).
 5. If the workspace is empty or has no meaningful files, use `follow_up_with_human`
    to ask the user what they're working on and what capabilities they need.
-6. ALWAYS update .ciri/memory/ as described below after sync completes.
+6. ALWAYS update {workspace_memory_dir}/ as described below after sync completes.
 
-CODEBASE & WORKSPACE MEMORY — .ciri/memory/
-This is your most critical output. The MemoryMiddleware auto-loads ALL .md files
-from .ciri/memory/ into Ciri's context on EVERY turn. Whatever you write here
-becomes Ciri's persistent understanding of the workspace.
+WORKSPACE MEMORY — {workspace_memory_dir}/
+This is your most critical output for /sync. The MemoryMiddleware auto-loads ALL
+.md files from {workspace_memory_dir}/ into Ciri's context on EVERY turn.
+Whatever you write here becomes Ciri's persistent understanding of THIS workspace.
 
-Entry point: `.ciri/memory/AGENT.md`
+Entry point: `{workspace_memory_dir}/AGENT.md`
 This is the master index. It MUST exist and contain:
 - **Workspace Overview**: What this workspace is for, its purpose, primary domain.
 - **Structure**: High-level layout — key directories, entry points, important files.
@@ -97,7 +106,7 @@ This is the master index. It MUST exist and contain:
 - **Key Dependencies/Tools**: Important tools, services, or libraries and their roles.
 - **Links**: References to topic-specific memory files for overflow.
 
-Topic files (create as needed, examples):
+Topic files (create as needed in {workspace_memory_dir}/):
 - `architecture.md` — Module breakdown, data flow, service boundaries (software).
 - `conventions.md` — Code style, commit format, naming rules, communication tone.
 - `infrastructure.md` — CI/CD, deployment, environments, hosting (software).
@@ -111,6 +120,8 @@ MEMORY RULES:
 - Update existing memory rather than appending duplicates.
 - Delete outdated entries when the workspace changes.
 - Never store secrets, credentials, or sensitive data in memory files.
+- Write workspace memory to {workspace_memory_dir}/ — NOT to {core_harness_dir}/memory/
+  (unless writing globally-applicable notes that apply across ALL projects).
 
 QUALITY GATES
 - Every skill must have clear "when to use" triggers in its description.
@@ -138,7 +149,9 @@ async def build_trainer_agent(
     cdp_endpoint: Optional[str] = None,
     crawler_browser_config: Optional[CrawlerBrowserConfig] = None,
     web_researcher_agent: Optional[CompiledSubAgent] = None,
-    ciri_dir: Optional[Path] = None,
+    ciri_dir: Optional[Path] = None,           # kept for backward compatibility
+    core_harness_dir: Optional[Path] = None,   # preferred: OS-level harness dir
+    workspace_memory_dir: Optional[Path] = None,  # workspace-specific .ciri/memory/
 ) -> CompiledSubAgent:
     # Build or reuse web researcher
     if web_researcher_agent is None:
@@ -177,12 +190,17 @@ async def build_trainer_agent(
         web_researcher_agent=web_researcher_agent,
     )
 
-    # Effective working directory
-    ciri_dir = ciri_dir or CIRI_DIR_DEFAULT
+    # Resolve directories
+    # core_harness_dir takes precedence; ciri_dir is the legacy param kept for compat
+    resolved_core_harness_dir = core_harness_dir or ciri_dir or CIRI_DIR_DEFAULT
+    resolved_workspace_memory_dir = workspace_memory_dir or (
+        get_default_filesystem_root() / ".ciri" / "memory"
+    )
 
-    # Format system prompt
+    # Format system prompt with both directory references
     system_prompt = TRAINER_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
-        ciri_dir=ciri_dir
+        core_harness_dir=resolved_core_harness_dir,
+        workspace_memory_dir=resolved_workspace_memory_dir,
     )
 
     interrupt_on = None
@@ -225,7 +243,9 @@ async def build_trainer_agent(
         name="trainer_agent",
         runnable=trainer_agent,
         description=(
-            f"Self-training orchestrator that evolves Ciri's capabilities in {ciri_dir}. "
+            f"Self-training orchestrator that evolves Ciri's global capabilities in "
+            f"{resolved_core_harness_dir} and workspace memory in "
+            f"{resolved_workspace_memory_dir}. "
             "Invoke when: user says 'train', 'learn', 'self-improve', 'sync', or "
             "'add a new capability'. Provide a high-level goal (e.g. 'Learn Terraform', "
             "'Sync with this project'). Do NOT use for one-off coding or research."

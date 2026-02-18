@@ -8,12 +8,12 @@ from langchain.agents.middleware import ToolRetryMiddleware
 from .._retry_helpers import graphinterrupt_aware_failure
 from ..backend import CiriBackend
 from ..prompts import BUILDER_CORE_PROMPT
-from ..utils import get_default_filesystem_root
+from ..utils import get_default_filesystem_root, get_core_harness_dir
 from typing import Optional
 from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..toolkit import build_script_executor_tool, follow_up_with_human
 
-WORKING_DIR_DEFAULT = get_default_filesystem_root() / ".ciri" / "toolkits"
+WORKING_DIR_DEFAULT = get_core_harness_dir() / "toolkits"
 
 
 TOOLKIT_BUILDER_SYSTEM_PROMPT_TEMPLATE = (
@@ -69,10 +69,13 @@ async def build_toolkit_builder_agent(
     # Effective working directory
     working_dir = working_dir or WORKING_DIR_DEFAULT
 
-    # Path to the mcp-builder skill
-    # We use get_default_filesystem_root() to ensure we find the project root correctly
-    mcp_builder_path = (
+    # Path to the mcp-builder skill — check core harness first, fall back to project harness
+    _core_mcp_builder = get_core_harness_dir() / "skills" / "mcp-builder"
+    _proj_mcp_builder = (
         get_default_filesystem_root() / ".ciri" / "skills" / "mcp-builder"
+    )
+    mcp_builder_path = (
+        _core_mcp_builder if _core_mcp_builder.exists() else _proj_mcp_builder
     )
 
     # Format the system prompt with the working directory

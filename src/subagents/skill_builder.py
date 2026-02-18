@@ -8,14 +8,14 @@ from langchain.agents.middleware import ToolRetryMiddleware
 
 from ..backend import CiriBackend
 from ..prompts import BUILDER_CORE_PROMPT
-from ..utils import get_default_filesystem_root
+from ..utils import get_default_filesystem_root, get_core_harness_dir
 from .._retry_helpers import graphinterrupt_aware_failure
 from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..toolkit import build_script_executor_tool, follow_up_with_human
 
-WORKING_DIR_DEFAULT = get_default_filesystem_root() / ".ciri" / "skills"
-TOOLKITS_DIR_DEFAULT = get_default_filesystem_root() / ".ciri" / "toolkits"
-SUBAGENTS_DIR_DEFAULT = get_default_filesystem_root() / ".ciri" / "subagents"
+WORKING_DIR_DEFAULT = get_core_harness_dir() / "skills"
+TOOLKITS_DIR_DEFAULT = get_core_harness_dir() / "toolkits"
+SUBAGENTS_DIR_DEFAULT = get_core_harness_dir() / "subagents"
 
 
 SKILL_BUILDER_SYSTEM_PROMPT_TEMPLATE = (
@@ -102,10 +102,13 @@ async def build_skill_builder_agent(
     toolkits_dir = toolkits_dir or TOOLKITS_DIR_DEFAULT
     subagents_dir = subagents_dir or SUBAGENTS_DIR_DEFAULT
 
-    # Path to the skill-creator skill
-    # We use get_default_filesystem_root() to ensure we find the project root correctly
-    skill_creator_path = (
+    # Path to the skill-creator skill — check core harness first, fall back to project harness
+    _core_skill_creator = get_core_harness_dir() / "skills" / "skill-creator"
+    _proj_skill_creator = (
         get_default_filesystem_root() / ".ciri" / "skills" / "skill-creator"
+    )
+    skill_creator_path = (
+        _core_skill_creator if _core_skill_creator.exists() else _proj_skill_creator
     )
 
     skill_creator_scripts = skill_creator_path / "scripts"

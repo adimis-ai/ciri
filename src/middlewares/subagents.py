@@ -8,7 +8,7 @@ from deepagents.middleware import (
     SubAgentMiddleware as BaseSubAgentMiddleware,
     SubAgent as DeepAgentSubAgent,
 )
-from ..utils import get_default_filesystem_root
+from ..utils import get_default_filesystem_root, get_core_harness_dir
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +150,34 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
         )
 
     def _discover_subagent_files(self, root: Path) -> List[Path]:
-        """Recursively find all .ciri/subagents/*.{yaml,yml,json} files."""
+        """Find all subagent config files: core harness first, then project .ciri/subagents dirs.
+
+        De-duplication strategy: name-based (by file stem).
+        If a subagent named 'foo' is found in the core harness, any project-level
+        'foo.yaml' / 'foo.yml' / 'foo.json' is silently skipped — the core harness
+        version wins.  This prevents duplicate roles from accumulating across projects.
+
+        Ordering:
+        1. Core harness: get_core_harness_dir() / "subagents" / "*.{yaml,yml,json}"
+        2. Project harness: all <root>/**/.ciri/subagents/*.{yaml,yml,json}
+        """
         discovered = []
+        seen_names: set = set()
+
+        # 1. Core harness subagent files (global defaults)
+        try:
+            core_subagents_dir = get_core_harness_dir() / "subagents"
+            if core_subagents_dir.is_dir():
+                for ext in ["*.yaml", "*.yml", "*.json"]:
+                    for config_file in sorted(core_subagents_dir.glob(ext)):
+                        stem = config_file.stem
+                        if stem not in seen_names:
+                            discovered.append(config_file)
+                            seen_names.add(stem)
+        except Exception as e:
+            logger.error(f"Error accessing core harness subagents directory: {e}")
+
+        # 2. Project harness subagent files (skip if same name already from core)
         try:
             for ciri_dir in root.rglob(".ciri"):
                 # Ensure we are not inside another .ciri folder
@@ -161,9 +187,19 @@ class SubAgentMiddleware(BaseSubAgentMiddleware):
                     subagents_dir = ciri_dir / "subagents"
                     if subagents_dir.is_dir():
                         for ext in ["*.yaml", "*.yml", "*.json"]:
-                            discovered.extend(list(subagents_dir.glob(ext)))
+                            for config_file in subagents_dir.glob(ext):
+                                stem = config_file.stem
+                                if stem not in seen_names:
+                                    discovered.append(config_file)
+                                    seen_names.add(stem)
+                                else:
+                                    logger.debug(
+                                        f"Skipping project subagent '{stem}' — "
+                                        f"already provided by core harness."
+                                    )
         except Exception as e:
             logger.error(f"Error while scanning for subagent files: {e}")
+
         return discovered
 
     def _load_subagent_file(self, path: Path) -> Dict[str, Any]:

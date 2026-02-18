@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import List, Optional, Union
 from deepagents.middleware import SkillsMiddleware as BaseSkillsMiddleware
-from ..utils import get_default_filesystem_root
+from ..utils import get_default_filesystem_root, get_core_harness_dir
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +50,12 @@ class SkillsMiddleware(BaseSkillsMiddleware):
         super().__init__(backend=backend, sources=self.sources)
 
     def _bootstrap_default_skills(self):
-        """
-        Copy default skills from system location to project's .ciri/skills
-        if they don't already exist.
+        """Copy default skills from src/skills/ into the core harness skills directory.
+
+        Target is get_core_harness_dir() / "skills" (the OS-level persistent
+        directory) so that default skills are available globally, not just in
+        the current project's .ciri/skills/.
+        The copy is skipped for skills that already exist (first-run-only bootstrap).
         """
         default_skills_source = Path(__file__).parent.parent / "skills"
 
@@ -63,14 +66,11 @@ class SkillsMiddleware(BaseSkillsMiddleware):
             )
             return
 
-        # Target directory: .ciri/skills in the project root
-        target_skills_dir = self.root / ".ciri" / "skills"
+        # Target: OS-level core harness, not the project-local .ciri/
+        target_skills_dir = get_core_harness_dir() / "skills"
+        # get_core_harness_dir() already ensures the directory exists
 
         try:
-            # Ensure target directory exists
-            target_skills_dir.mkdir(parents=True, exist_ok=True)
-
-            # Iterate through available default skills
             for item in default_skills_source.iterdir():
                 if item.is_dir():
                     skill_name = item.name
@@ -85,7 +85,7 @@ class SkillsMiddleware(BaseSkillsMiddleware):
                             logger.error(f"Failed to copy skill {skill_name}: {e}")
                     else:
                         logger.debug(
-                            f"Skill {skill_name} already exists in project, skipping."
+                            f"Skill {skill_name} already exists in core harness, skipping."
                         )
 
         except Exception as e:
@@ -113,10 +113,27 @@ class SkillsMiddleware(BaseSkillsMiddleware):
         )
 
     def _discover_skills_sources(self, root: Path) -> List[str]:
-        """Recursively find all .ciri/skills directories."""
+        """Find all skills directories: core harness first, then project .ciri/skills dirs.
+
+        Ordering:
+        1. Core harness: get_core_harness_dir() / "skills"  (highest priority)
+        2. Project harness: all <root>/**/.ciri/skills directories
+
+        De-duplication is handled in _refresh_sources() by resolved path.
+        Order is intentional — NOT sorted, so core harness always comes first.
+        """
         discovered = []
+
+        # 1. Core harness skills directory (highest priority / first loaded)
         try:
-            # Recursive search for all .ciri folders
+            core_skills_dir = get_core_harness_dir() / "skills"
+            if core_skills_dir.is_dir():
+                discovered.append(str(core_skills_dir.resolve()))
+        except Exception as e:
+            logger.error(f"Error accessing core harness skills directory: {e}")
+
+        # 2. Project harness: scan for all .ciri/skills directories under root
+        try:
             for ciri_dir in root.rglob(".ciri"):
                 # Ensure we are not inside another .ciri folder
                 if ciri_dir.is_dir() and not any(
@@ -128,7 +145,7 @@ class SkillsMiddleware(BaseSkillsMiddleware):
         except Exception as e:
             logger.error(f"Error while scanning for skills directories: {e}")
 
-        return sorted(discovered)
+        return discovered  # NOT sorted — order matters (core harness first)
 
     async def awrap_model_call(self, request, handler):
         self._refresh_sources()

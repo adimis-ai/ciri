@@ -84,14 +84,15 @@ DELEGATION STRATEGY — choose the right agent for the job:
 - `trainer_agent` — When the user says "learn", "train", "self-improve", or /sync.
   It orchestrates the builders above and manages workspace memory.
 
-PERSISTENT MEMORY — .ciri/memory/
-The MemoryMiddleware auto-loads ALL .md files from .ciri/memory/ into your context
-on every turn. This is your long-term understanding of the workspace.
-- Read .ciri/memory/AGENT.md at the start of complex tasks — it's your context index.
+PERSISTENT MEMORY — two-level system
+The MemoryMiddleware auto-loads ALL .md files from TWO locations on every turn:
+1. Core harness memory (OS-level, cross-project): globally applicable context.
+2. Workspace memory (.ciri/memory/): THIS project's specific understanding.
+- Read .ciri/memory/AGENT.md at the start of complex tasks — it's your workspace index.
 - After completing significant work (new features, architectural changes, learned
-  patterns, resolved issues), UPDATE the relevant memory files to stay current.
+  patterns, resolved issues), UPDATE .ciri/memory/ files to stay current.
 - Keep memory files concise, accurate, and actionable. Delete outdated entries.
-- If AGENT.md doesn't exist yet, suggest the user run /sync to initialize it.
+- If .ciri/memory/AGENT.md doesn't exist yet, suggest the user run /sync to initialize it.
 - Never store secrets or credentials in memory files.
 
 CORE PRINCIPLES
@@ -277,9 +278,16 @@ async def create_copilot(
     # Pre-instantiate shared middlewares to avoid redundant rescans/syncs
     toolkit_middleware = ToolkitInjectionMiddleware()
     await toolkit_middleware.refresh()
-    shared_skills_middleware = None
-    if skills is not None:
-        shared_skills_middleware = SkillsMiddleware(backend=backend, sources=skills)
+
+    # SkillsMiddleware is ALWAYS created — it now auto-discovers both the OS-level
+    # core harness (get_core_harness_dir()/skills/) and any project .ciri/skills/
+    # directories at runtime.  Explicit `skills` paths from the caller are added on top.
+    shared_skills_middleware = SkillsMiddleware(backend=backend, sources=skills or [])
+
+    # MemoryMiddleware is ALWAYS created — it now auto-discovers both the OS-level
+    # core harness (get_core_harness_dir()/memory/) and project .ciri/memory/ files.
+    # Explicit `memory` paths from the caller are added on top.
+    shared_memory_middleware = MemoryMiddleware(backend=backend, sources=memory or [])
 
     # Build middleware stack for subagents
     subagent_middleware: list[AgentMiddleware] = [
@@ -294,10 +302,8 @@ async def create_copilot(
         ),
         TodoListMiddleware(),
         toolkit_middleware,
+        shared_skills_middleware,
     ]
-
-    if shared_skills_middleware:
-        subagent_middleware.append(shared_skills_middleware)
 
     subagent_middleware.extend(
         [
@@ -328,11 +334,9 @@ async def create_copilot(
         ),
         TodoListMiddleware(),
         toolkit_middleware,
+        shared_memory_middleware,
+        shared_skills_middleware,
     ]
-    if memory is not None:
-        copilot_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
-    if shared_skills_middleware:
-        copilot_middleware.append(shared_skills_middleware)
     copilot_middleware.extend(
         [
             FilesystemMiddleware(backend=backend),
