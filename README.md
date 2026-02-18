@@ -43,6 +43,7 @@ CIRI is a local CLI application that helps users interact with AI models and too
 
 - **Interactive AI Chat**: Streaming responses with rich terminal formatting.
 - **Multi-Provider Support**: Seamless integration with OpenRouter or direct providers (Anthropic, OpenAI, Google, etc.) via LangChain.
+- **Multimodal Content**: Support for images, audio, and documents (PDF, CSV, etc.) in conversation.
 - **Thread-Based Management**: Save, switch, and delete conversation threads locally.
 - **Deep Contextual Autocompletion**: High-performance autocompletion for `@files:`, `@folders:`, `@skills:`, `@toolkits:`, and `@subagents:`.
 - **Self-Evolution**: Ciri can analyze its workspace and register new skills, toolkits, and subagents on the fly.
@@ -222,6 +223,7 @@ Goodbye!
 **High-level architecture**
 
 - Entry point / CLI: `ciri` starts an interactive REPL-like chat.
+- Core Logic: `CopilotController` manages threads and executes the agent graph (supports multimodal inputs).
 - Model integration: OpenRouter client used for model calls; streaming and selection handled by runtime code.
 - Tools & skills: extensible skills discovered under `.ciri/skills` (skills may include scripts, validators, and metadata).
 - Storage: local conversation storage — see code for details.

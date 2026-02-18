@@ -52,6 +52,7 @@ module.exports = {
       type: 'category',
       label: 'Internals',
       items: [
+        'internals/controller',
         'internals/middlewares',
         'internals/self-evolution',
         'internals/graph-execution',

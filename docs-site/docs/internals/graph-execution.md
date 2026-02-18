@@ -53,8 +53,8 @@ sequenceDiagram
 |---|---|---|
 | `main()` | `src/__main__.py` | CLI entry, startup sequence, REPL loop |
 | `create_copilot()` | `src/copilot.py` | Assembles the full LangGraph graph |
-| `CiriController.stream()` | `src/controller.py` | Streams events from graph for a given input |
-| `CiriController.get_state()` | `src/controller.py` | Returns current graph checkpoint state |
+| `CopilotController.run()` | `src/controller.py` | Streams events from graph for a given input |
+| `CopilotController.get_state()` | `src/controller.py` | Returns current graph checkpoint state |
 | `llm_config.init_langchain_model()` | `src/llm_config.py` | Initializes LangChain model from config |
 | `ensure_playwright_installed()` | `src/__main__.py` | Runs `playwright install chromium` silently |
 
@@ -80,6 +80,7 @@ stream_modes = ["updates", "messages"]
 
 ---
 
+## [Full Middleware Reference](../internals/middlewares.md) | [Controller Reference](controller.md)
 ## Middleware Wrapping
 
 Each middleware wraps the LLM call via `wrap_model_call`. The stack processes requests inward and responses outward:
@@ -163,7 +164,7 @@ sequenceDiagram
   Ctrl-->>REPL: done
 ```
 
-The REPL runs a synchronous loop calling `controller.stream()`. `CiriController.stream()` runs the async `astream()` in the event loop and yields events synchronously using `asyncio.run_coroutine_threadsafe()` or equivalent.
+The REPL runs a synchronous loop calling `controller.run()`. `CopilotController.run()` runs the async `astream()` in the event loop and yields events.
 
 ---
 
@@ -224,9 +225,9 @@ print(graph.get_graph().draw_ascii())
 
 **Inspect checkpoint state:**
 ```python
-from src.controller import CiriController
+from src.controller import CopilotController
 
-ctrl = CiriController(graph)
+ctrl = CopilotController(graph)
 state = asyncio.run(ctrl.get_state(thread_id="my-thread"))
 print(state.values)
 ```
@@ -239,11 +240,11 @@ from src.controller import CiriController
 
 async def test_basic_flow():
     graph = await create_copilot(model="claude-haiku-4-5-20251001")
-    ctrl = CiriController(graph)
+    ctrl = CopilotController(graph)
     thread_id = "test-thread"
 
     results = []
-    async for event in ctrl.astream("Hello", thread_id):
+    async for event in ctrl.run("Hello", thread_id):
         results.append(event)
 
     assert any("Hello" in str(r) for r in results)
