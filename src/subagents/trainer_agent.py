@@ -15,6 +15,11 @@ from ..toolkit import build_script_executor_tool, follow_up_with_human
 from .skill_builder import build_skill_builder_agent
 from .subagent_builder import build_subagent_builder_agent
 from .toolkit_builder import build_toolkit_builder_agent
+from ..middlewares import (
+    InjectAvailableToolNamesMiddleware,
+    InjectAvailableSubAgentNamesMiddleware,
+    InjectAvailableSkillNamesMiddleware,
+)
 
 CIRI_DIR_DEFAULT = get_core_harness_dir()
 
@@ -227,6 +232,9 @@ async def build_trainer_agent(
         system_prompt=system_prompt,
         tools=[build_script_executor_tool(), follow_up_with_human],
         middleware=[
+            InjectAvailableToolNamesMiddleware(),
+            InjectAvailableSubAgentNamesMiddleware(),
+            InjectAvailableSkillNamesMiddleware(),
             ToolRetryMiddleware(
                 max_retries=2,
                 retry_on=lambda exc: not isinstance(exc, GraphInterrupt),

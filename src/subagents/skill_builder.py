@@ -12,10 +12,13 @@ from ..utils import get_default_filesystem_root, get_core_harness_dir
 from .._retry_helpers import graphinterrupt_aware_failure
 from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..toolkit import build_script_executor_tool, follow_up_with_human
+from ..middlewares import (
+    InjectAvailableToolNamesMiddleware,
+    InjectAvailableSubAgentNamesMiddleware,
+    InjectAvailableSkillNamesMiddleware,
+)
 
 WORKING_DIR_DEFAULT = get_core_harness_dir() / "skills"
-TOOLKITS_DIR_DEFAULT = get_core_harness_dir() / "toolkits"
-SUBAGENTS_DIR_DEFAULT = get_core_harness_dir() / "subagents"
 
 
 SKILL_BUILDER_SYSTEM_PROMPT_TEMPLATE = (
@@ -23,8 +26,6 @@ SKILL_BUILDER_SYSTEM_PROMPT_TEMPLATE = (
 packages that teach Ciri specialized workflows and domain knowledge.
 
 WORKING_DIR: `{working_dir}`
-TOOLKITS_DIR: `{toolkits_dir}`
-SUBAGENTS_DIR: `{subagents_dir}`
 
 WHAT IS A SKILL?
 A self-contained directory in WORKING_DIR containing a SKILL.md (instructions the
@@ -55,8 +56,10 @@ SKILL.md RULES
 - YAML frontmatter: ONLY `name` and `description` (max 1024 chars).
 - Body: Lean orchestration instructions. If content exceeds ~100 lines, move
   details to references/ and link to them.
-- Skills can reference toolkits in {toolkits_dir} and subagents in {subagents_dir}
-  by name for multi-step workflows.
+- Skills can reference available toolkits and subagents by name for multi-step
+  workflows. Consult the REGISTRY OF AVAILABLE TOOLS, REGISTRY OF AVAILABLE
+  SUBAGENTS, and REGISTRY OF AVAILABLE SKILLS injected at the end of this prompt
+  to see what is currently installed.
 - The file MUST be named exactly `SKILL.md` — the skills loader only reads this filename.
 
 FORBIDDEN: README.md, INSTALL.md, requirements.txt in skill root. No vague
@@ -92,8 +95,6 @@ async def build_skill_builder_agent(
     crawler_browser_config: Optional[CrawlerBrowserConfig] = None,
     web_researcher_agent: Optional[CompiledSubAgent] = None,
     working_dir: Optional[Path] = None,
-    toolkits_dir: Optional[Path] = None,
-    subagents_dir: Optional[Path] = None,
 ) -> CompiledSubAgent:
     # Create the Web Researcher SubAgent (or reuse pre-built one)
     if web_researcher_agent is None:
@@ -104,10 +105,8 @@ async def build_skill_builder_agent(
             crawler_browser_config=crawler_browser_config,
         )
 
-    # Effective working directories
+    # Effective working directory
     working_dir = working_dir or WORKING_DIR_DEFAULT
-    toolkits_dir = toolkits_dir or TOOLKITS_DIR_DEFAULT
-    subagents_dir = subagents_dir or SUBAGENTS_DIR_DEFAULT
 
     # Path to the skill-creator skill — check core harness first, fall back to project harness
     _core_skill_creator = get_core_harness_dir() / "skills" / "skill-creator"
@@ -120,11 +119,9 @@ async def build_skill_builder_agent(
 
     skill_creator_scripts = skill_creator_path / "scripts"
 
-    # Format the system prompt with the working directories
+    # Format the system prompt with the working directory
     system_prompt = SKILL_BUILDER_SYSTEM_PROMPT_TEMPLATE.format(
         working_dir=working_dir,
-        toolkits_dir=toolkits_dir,
-        subagents_dir=subagents_dir,
         skill_creator_scripts=skill_creator_scripts,
     )
 
@@ -148,6 +145,9 @@ async def build_skill_builder_agent(
         tools=[build_script_executor_tool(), follow_up_with_human],
         skills=[skill_creator_path] if skill_creator_path.exists() else [],
         middleware=[
+            InjectAvailableToolNamesMiddleware(),
+            InjectAvailableSubAgentNamesMiddleware(),
+            InjectAvailableSkillNamesMiddleware(),
             ToolRetryMiddleware(
                 max_retries=2,
                 retry_on=lambda exc: not isinstance(exc, GraphInterrupt),

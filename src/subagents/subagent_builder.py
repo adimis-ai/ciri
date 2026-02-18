@@ -1,8 +1,6 @@
-from typing import Any
 from pathlib import Path
 from langgraph.errors import GraphInterrupt
 from langgraph.cache.memory import InMemoryCache
-from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from deepagents import create_deep_agent, CompiledSubAgent
 from langchain.agents.middleware import ToolRetryMiddleware
@@ -14,6 +12,11 @@ from ..utils import get_default_filesystem_root, get_core_harness_dir
 from typing import Optional
 from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..toolkit import build_script_executor_tool, follow_up_with_human
+from ..middlewares import (
+    InjectAvailableToolNamesMiddleware,
+    InjectAvailableSubAgentNamesMiddleware,
+    InjectAvailableSkillNamesMiddleware,
+)
 
 WORKING_DIR_DEFAULT = get_core_harness_dir() / "subagents"
 
@@ -57,52 +60,6 @@ DESIGN PRINCIPLES
     + "\n\n"
     + BUILDER_CORE_PROMPT
 )
-
-
-class InjectAvailableToolNamesMiddleware(AgentMiddleware):
-    """Injects the list of ALL available tools into the system prompt to guide subagent tool assignment."""
-
-    HEADER = "\n\n# REGISTRY OF AVAILABLE TOOLS\n"
-    INSTRUCTION = "CRITICAL: You MUST ONLY select tools from the following list when building a new subagent. Use the exact tool name as shown.\n\n"
-    FOOTER = "\n\n---\nSubagent Tool Rules: Use exact names above. Set `tools: all` only if truly needed. Missing tools cannot be assigned.\n"
-
-    def _build_tools_block(self, request: Any) -> str:
-        tools = getattr(request, "tools", None) or []
-        if not tools:
-            return ""
-
-        lines = []
-        for tool in tools:
-            name = getattr(tool, "name", "unknown_tool")
-            desc = (getattr(tool, "description", "") or "").replace("\n", " ")
-            desc = desc[:120] + ("..." if len(desc) > 120 else "")
-            lines.append(f"- **{name}**: {desc}")
-
-        return self.HEADER + self.INSTRUCTION + "\n".join(lines) + self.FOOTER
-
-    def _inject(self, request: Any) -> None:
-        tools_block = self._build_tools_block(request)
-        if not tools_block:
-            return
-
-        # Ensure system_prompt exists
-        base_prompt = request.system_prompt or ""
-
-        # Prevent duplicate injection across turns/retries
-        if "Available tools:" in base_prompt:
-            return
-
-        request.system_prompt = base_prompt + tools_block
-
-    # Sync
-    def wrap_model_call(self, request, handler):
-        self._inject(request)
-        return handler(request)
-
-    # Async
-    async def awrap_model_call(self, request, handler):
-        self._inject(request)
-        return await handler(request)
 
 
 async def build_subagent_builder_agent(
@@ -171,6 +128,8 @@ async def build_subagent_builder_agent(
         skills=[p for p in [subagent_builder_path, skill_creator_path] if p.exists()],
         middleware=[
             InjectAvailableToolNamesMiddleware(),
+            InjectAvailableSubAgentNamesMiddleware(),
+            InjectAvailableSkillNamesMiddleware(),
             ToolRetryMiddleware(
                 max_retries=2,
                 retry_on=lambda exc: not isinstance(exc, GraphInterrupt),

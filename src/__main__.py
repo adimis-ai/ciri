@@ -1065,32 +1065,21 @@ class CopilotCLI:
         console.print(table)
 
     async def _cmd_change_model(self):
-        """Change the active model (requires agent rebuild)."""
-        console.print(
-            "  [yellow]Note: Changing the model requires rebuilding the agent.[/]"
-        )
+        """Change the active model and auto-rebuild the agent."""
         new_model = await self._select_model()
         if new_model != self.selected_model:
             self.selected_model = new_model
             self.settings["model"] = new_model
             save_settings(self.settings)
             console.print(f"  [green]Model set to:[/] [bold]{self.selected_model}[/]")
-            console.print(
-                "  [yellow]The new model will take effect on the next agent rebuild.[/]"
-            )
-            console.print(
-                "  [dim]Tip: Use /new-thread or restart CIRI to rebuild with the new model.[/]"
-            )
+            await self._rebuild_agent()
         else:
             console.print("  [dim]Model unchanged.[/]")
 
     async def _cmd_change_browser_profile(self):
-        """Change the default browser profile (requires agent rebuild)."""
-        console.print(
-            "  [yellow]Note: Changing the browser profile requires rebuilding the agent.[/]"
-        )
+        """Change the default browser profile and auto-rebuild the agent."""
         new_profile = await self._select_browser_profile()
-        # Even if new_profile is None (skipped), we save it if it changed
+        # Even if new_profile is None (skipped), rebuild if it changed
         if new_profile != self.selected_browser_profile:
             self.selected_browser_profile = new_profile
             self.settings["browser_profile"] = new_profile
@@ -1101,14 +1090,66 @@ class CopilotCLI:
                 )
             else:
                 console.print("  [green]Browser profile cleared.[/]")
-            console.print(
-                "  [yellow]The new browser profile will take effect on the next agent rebuild.[/]"
-            )
-            console.print(
-                "  [dim]Tip: Use /new-thread or restart CIRI to rebuild with the new profile.[/]"
-            )
+            await self._rebuild_agent()
         else:
             console.print("  [dim]Browser profile unchanged.[/]")
+
+    async def _rebuild_agent(self):
+        """Rebuild the copilot agent and controller with the current settings.
+
+        Called automatically after model or browser profile changes.
+        Creates a fresh thread so the new agent starts clean.
+        """
+        console.print()
+        console.print(Rule("[bold cyan]Rebuilding Agent[/]", style="cyan"))
+        console.print()
+
+        # Browser profile kwargs
+        browser_kwargs = {}
+        if self.selected_browser_profile:
+            browser_kwargs["browser_name"] = self.selected_browser_profile["browser"]
+            browser_kwargs["browser_profile_directory"] = (
+                self.selected_browser_profile["profile_directory"]
+            )
+
+        try:
+            with console.status(
+                "[cyan]Rebuilding copilot agent...[/]", spinner="dots"
+            ):
+                llm_config = LLMConfig(model=self.selected_model)
+
+                def _on_execute_output(line: str):
+                    console.print(f"  [dim green]|[/] [dim]{line}[/]")
+
+                self.backend = CiriBackend(output_callback=_on_execute_output)
+
+                copilot = await create_copilot(
+                    name="Ciri",
+                    llm_config=llm_config,
+                    checkpointer=self.checkpointer,
+                    all_allowed=self.all_allowed,
+                    backend=self.backend,
+                    **browser_kwargs,
+                )
+            console.print("  [green]✓[/] Copilot agent rebuilt")
+
+            with console.status("[cyan]Reinitializing controller...[/]", spinner="dots"):
+                self.controller = CopilotController(graph=copilot, db=self.db)
+            console.print("  [green]✓[/] Controller ready")
+
+            # Start a fresh thread so the new agent begins with a clean slate
+            self.current_thread = self.controller.create_thread()
+            self.is_new_thread = True
+            self.settings["thread_id"] = self.current_thread["id"]
+            save_settings(self.settings)
+            console.print("  [green]✓[/] New thread started")
+
+        except Exception as e:
+            console.print(f"\n  [bold red]Rebuild failed:[/] {e}")
+            console.print("  [yellow]The previous agent is still active.[/]")
+            return
+
+        console.print()
 
     # ── /sync Command ─────────────────────────────────────────────────────
 
@@ -1259,6 +1300,26 @@ class CopilotCLI:
                 "6. If anything is unclear about the project, use `follow_up_with_human` "
                 "to ask the user for clarification."
             )
+
+        # ── Prompt for additional training direction (optional) ──────────────
+        console.print(
+            Panel(
+                "[bold]Additional training instructions[/] [dim](optional)[/]\n"
+                "[dim]Provide specific goals, focus areas, or constraints for Ciri to\n"
+                "prioritise during training. Press [bold]Enter[/] to submit, "
+                "[bold]Alt+Enter[/] for a new line, or leave blank to skip.[/]",
+                style="cyan",
+                padding=(0, 1),
+            )
+        )
+        console.print()
+        extra_instructions = await self._prompt_multiline("  Training seeds > ")
+        extra_instructions = extra_instructions.strip()
+        if extra_instructions:
+            sync_message += (
+                f"\n\n**Additional instructions from the user:**\n{extra_instructions}"
+            )
+        console.print()
 
         # Send as a regular message through the normal flow
         # This ensures it goes through the agent with full streaming/interrupt support
