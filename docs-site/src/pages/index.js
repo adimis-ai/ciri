@@ -98,7 +98,7 @@ export default function Home() {
             <Link
               className="button-primary"
               style={{ background: 'transparent', border: '1px solid rgba(139,92,246,0.5)' }}
-              to="/docs/intro"
+              to="/docs/"
             >
               Read the Docs
             </Link>

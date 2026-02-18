@@ -72,7 +72,7 @@ module.exports = {
         {
           title: 'Get Started',
           items: [
-            { label: 'Introduction', to: '/docs/intro' },
+            { label: 'Introduction', to: '/docs/' },
             { label: 'Installation', to: '/docs/getting-started' },
             { label: 'CLI Reference', to: '/docs/cli-reference' },
             { label: 'Examples', to: '/docs/examples' },
