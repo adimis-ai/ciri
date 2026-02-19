@@ -114,7 +114,7 @@ Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 # Install as a global tool (recommended)
-uv tool install ciri-ai
+uv tool install ciri-ai --force --refresh
 
 # Or add to your current project
 uv add ciri-ai
