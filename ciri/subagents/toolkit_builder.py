@@ -12,7 +12,6 @@ from ..utils import get_default_filesystem_root, get_core_harness_dir
 from typing import Optional
 from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..middlewares import (
-    SkillsMiddleware,
     InjectAvailableToolNamesMiddleware,
     InjectAvailableSubAgentNamesMiddleware,
     InjectAvailableSkillNamesMiddleware,
@@ -77,7 +76,6 @@ async def build_toolkit_builder_agent(
         tools=[build_script_executor_tool(), follow_up_with_human],
         skills=[mcp_builder_path] if mcp_builder_path.exists() else [],
         middleware=[
-            SkillsMiddleware(backend=backend),
             InjectAvailableToolNamesMiddleware(),
             InjectAvailableSubAgentNamesMiddleware(),
             InjectAvailableSkillNamesMiddleware(),

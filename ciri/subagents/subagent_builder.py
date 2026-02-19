@@ -13,7 +13,6 @@ from typing import Optional
 from .web_researcher import build_web_researcher_agent, CrawlerBrowserConfig
 from ..toolkit import build_script_executor_tool, follow_up_with_human
 from ..middlewares import (
-    SkillsMiddleware,
     InjectAvailableToolNamesMiddleware,
     InjectAvailableSubAgentNamesMiddleware,
     InjectAvailableSkillNamesMiddleware,
@@ -87,7 +86,6 @@ async def build_subagent_builder_agent(
         tools=[build_script_executor_tool(), follow_up_with_human],
         skills=[p for p in [subagent_builder_path, skill_creator_path] if p.exists()],
         middleware=[
-            SkillsMiddleware(backend=backend),
             InjectAvailableToolNamesMiddleware(),
             InjectAvailableSubAgentNamesMiddleware(),
             InjectAvailableSkillNamesMiddleware(),
