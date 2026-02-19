@@ -122,9 +122,11 @@ Run `/sync` and the **Trainer Agent** audits your environment, identifies capabi
 
 ```bash
 # Install
-pip install ciri-copilot
+pip install ciri-ai
 # or with uv (recommended)
-uv pip install ciri-copilot
+uv tool install ciri-ai
+# or add to project
+uv add ciri-ai
 
 # Run
 ciri

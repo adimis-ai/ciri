@@ -21,13 +21,17 @@ This guide covers installation, first-run setup, and the essential commands to g
 ### Option A — Install from PyPI (recommended)
 
 ```bash
-pip install ciri-copilot
+pip install ciri-ai
 ```
 
 Or with `uv`:
 
 ```bash
-uv pip install ciri-copilot
+# Install as a global tool (recommended)
+uv tool install ciri-ai
+
+# Or add to your current project
+uv add ciri-ai
 ```
 
 ### Option B — Install from source

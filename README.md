@@ -105,13 +105,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### From PyPI (recommended)
 
 ```bash
-pip install ciri
+pip install ciri-ai
 ```
 
-Or with [uv](https://docs.astral.sh/uv/) (faster, isolated):
+Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install ciri
+# Install as a global tool (recommended)
+uv tool install ciri-ai
+
+# Or add to your current project
+uv add ciri-ai
 ```
 
 After install, the `ciri` command is available globally.
