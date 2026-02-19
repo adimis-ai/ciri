@@ -58,6 +58,7 @@ from .utils import (
     list_skills,
     list_toolkits,
     list_subagents,
+    list_harnesses,
     load_settings,
     save_settings,
     sync_default_skills,
@@ -484,6 +485,21 @@ class CiriCompleter(Completer):
                         subagent,
                         start_position=-len(prefix),
                         display=f"🤖 {subagent}",
+                    )
+            except Exception:
+                pass
+            return
+
+        # Handle @harness: trigger
+        if "@harness:" in text:
+            prefix = text.split("@harness:")[-1]
+            try:
+                harnesses = list_harnesses(prefix)
+                for path_str, flag in harnesses:
+                    yield Completion(
+                        path_str,
+                        start_position=-len(prefix),
+                        display=f"🗂️  {path_str} ({flag})",
                     )
             except Exception:
                 pass

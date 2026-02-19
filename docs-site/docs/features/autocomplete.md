@@ -3,7 +3,7 @@
 Ciri's terminal input supports two families of autocomplete:
 
 1. **Slash-command autocomplete** — `/` prefix for CLI commands
-2. **`@`-trigger autocomplete** — reference files, folders, skills, toolkits, or subagents
+2. **`@`-trigger autocomplete** — reference files, folders, skills, toolkits, subagents, or harness directories
 
 Both use Prompt Toolkit's completion engine (`CiriCompleter`) and activate on `Tab`.
 
@@ -18,6 +18,7 @@ Both use Prompt Toolkit's completion engine (`CiriCompleter`) and activate on `T
 | `@skills:<prefix>` | Skill names | Core harness + project harness |
 | `@toolkits:<prefix>` | Toolkit names | Core harness + project harness |
 | `@subagents:<prefix>` | SubAgent names | Core harness + project harness |
+| `@harness:<prefix>` | Harness directory paths | Core harness + current project harness |
 
 ---
 
@@ -119,6 +120,31 @@ Built-in subagents (`web_researcher`, `skill_builder`, `toolkit_builder`, `subag
 
 ---
 
+## Harness Trigger
+
+### `@harness:<prefix>`
+
+Lists the known harness root directories. Each entry is annotated with a flag:
+- **(Core)** — the OS-level core harness (`~/.local/share/ciri/` on Linux)
+- **(Current)** — the current project's harness (`.ciri/` under the working directory)
+
+```
+You > Explore the structure of @harness:
+  🗂️  /home/user/.local/share/ciri (Core)
+  🗂️  /home/user/projects/myapp/.ciri (Current)
+```
+
+Use this to quickly reference either harness root when asking Ciri to inspect, edit, or extend its own skills/toolkits/subagents/memory.
+
+```
+You > List all skills in @harness:~/.local/share/ciri
+You > Show memory files in @harness:/path/to/project/.ciri
+```
+
+Only harness directories that **exist on disk** are shown. Completions are prefixed with 🗂️.
+
+---
+
 ## Slash Command Autocomplete
 
 Type `/` and press `Tab` to see all available commands:
@@ -151,14 +177,15 @@ Model: claude-[TAB]
 
 The autocomplete logic lives in two places:
 
-**`src/utils.py`** — discovery functions:
+**`ciri/utils.py`** — discovery functions:
 - `list_files_with_gitignore(root, prefix)` — file listing
 - `list_folders_with_gitignore(root, prefix)` — folder listing
 - `list_skills(root, prefix)` — skill discovery
 - `list_toolkits(root, prefix)` — toolkit discovery
 - `list_subagents(root, prefix)` — subagent discovery
+- `list_harnesses(prefix)` — harness path discovery
 
-**`src/__main__.py`** — `CiriCompleter` class:
+**`ciri/__main__.py`** — `CiriCompleter` class:
 - Inherits from `prompt_toolkit.completion.Completer`
 - `get_completions(document, complete_event)` — dispatches to the right discovery function
 - Adds display prefix emoji for each trigger type

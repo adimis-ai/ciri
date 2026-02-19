@@ -1123,3 +1123,35 @@ def list_subagents(root: Path, prefix: str = "") -> List[str]:
         pass
 
     return sorted(set(subagents))
+
+
+def list_harnesses(prefix: str = "") -> List[tuple]:
+    """Return (path_str, flag) for known harness directories.
+
+    Returns at most two entries:
+    - Core harness  → (str(get_core_harness_dir()), "Core")
+    - Current harness → (str(get_default_filesystem_root() / ".ciri"), "Current")
+
+    Filters by prefix (matched against the path string).
+    Only includes harness paths that actually exist on disk.
+    """
+    results = []
+    try:
+        core = get_core_harness_dir()
+        if core.exists():
+            path_str = str(core)
+            if prefix == "" or path_str.startswith(prefix):
+                results.append((path_str, "Core"))
+    except Exception:
+        pass
+
+    try:
+        project_ciri = get_default_filesystem_root() / ".ciri"
+        if project_ciri.exists():
+            path_str = str(project_ciri)
+            if prefix == "" or path_str.startswith(prefix):
+                results.append((path_str, "Current"))
+    except Exception:
+        pass
+
+    return results

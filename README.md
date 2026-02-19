@@ -46,7 +46,7 @@ CIRI is a local CLI application that helps users interact with AI models and too
 - **Multi-Provider Support**: Seamless integration with OpenRouter or direct providers (Anthropic, OpenAI, Google, etc.) via LangChain.
 - **Multimodal Content**: Support for images, audio, and documents (PDF, CSV, etc.) in conversation.
 - **Thread-Based Management**: Save, switch, and delete conversation threads locally.
-- **Deep Contextual Autocompletion**: High-performance autocompletion for `@files:`, `@folders:`, `@skills:`, `@toolkits:`, and `@subagents:`.
+- **Deep Contextual Autocompletion**: High-performance autocompletion for `@files:`, `@folders:`, `@skills:`, `@toolkits:`, `@subagents:`, and `@harness:`.
 - **Self-Evolution**: Ciri can analyze its workspace and register new skills, toolkits, and subagents on the fly.
 - **Human-in-the-Loop (HITL)**: Approve, reject, or edit tool actions (shell commands, file edits) before they execute.
 - **Local Storage**: Checkpoint and conversation history stored in a local SQLite database.
@@ -189,6 +189,7 @@ On first run, you will be guided through model and browser profile selection.
 
 - **Reference Files**: Type `@files:` then a path fragment.
 - **Reference Folders**: Type `@folders:` then a path fragment.
+- **Reference Harness**: Type `@harness:` to select core or project harness directories — shown with `(Core)` and `(Current)` flags.
 - **Use Skills**: Type `@skills:` to see available local skills.
 - **Sync Workspace**: Run `/sync` to let Ciri discover your local setup.
 - **Change Model**: Run `/change-model` to switch AI providers/models.

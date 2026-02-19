@@ -48,6 +48,7 @@ You > What is the structure of @folders:src/middlewares?
 | `@skills:<prefix>` | List skills from `~/.local/share/ciri/skills/` and `.ciri/skills/` | `@skills:pdf` |
 | `@toolkits:<prefix>` | List toolkits from `~/.local/share/ciri/toolkits/` and `.ciri/toolkits/` | `@toolkits:slack` |
 | `@subagents:<prefix>` | List subagents from `~/.local/share/ciri/subagents/` and `.ciri/subagents/` | `@subagents:web` |
+| `@harness:<prefix>` | List harness root directories (core and current project) | `@harness:` |
 
 **Usage example:**
 ```
@@ -59,7 +60,7 @@ You > Delegate this to @subagents:web_researcher
 ### Autocomplete Behavior
 
 - Results are **limited to 50 items** for performance.
-- Displayed with emoji prefixes: 📄 files · 📁 folders · ⚡ skills · 🔧 toolkits · 🤖 subagents
+- Displayed with emoji prefixes: 📄 files · 📁 folders · ⚡ skills · 🔧 toolkits · 🤖 subagents · 🗂️ harness
 - Gitignore specs are parsed **recursively** — all `.gitignore` files in the tree are respected.
 - Errors (malformed patterns, permission denied) are silently swallowed.
 
