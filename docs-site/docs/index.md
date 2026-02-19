@@ -128,12 +128,16 @@ uv tool install ciri-ai
 # or add to project
 uv add ciri-ai
 
-# Run
+# Run interactive TUI
 ciri
 
 # On first run, Ciri walks you through model selection.
 # Then analyze your workspace:
 /sync
+
+# Or use API mode for custom UIs / backend servers
+ciri --api --server &          # Start persistent server
+ciri --api --run --input ...   # Send commands from your backend
 ```
 
 → [Full Getting Started Guide](getting-started.md)
@@ -145,7 +149,8 @@ ciri
 | Section | What's Inside |
 |---|---|
 | **[Getting Started](getting-started.md)** | Installation, first run, model configuration |
-| **[CLI Reference](cli-reference.md)** | All `/commands`, `@triggers`, keyboard shortcuts |
+| **[CLI Reference](cli-reference.md)** | All `/commands`, `@triggers`, keyboard shortcuts, and `--api` mode examples |
+| **[API Reference](api-reference.md)** | Programmatic access: Unix socket server, NDJSON protocol, backend integration |
 | **[Skills Guide](skills-guide.md)** | Creating and using domain capability packages |
 | **[Toolkits Guide](toolkits-guide.md)** | MCP server integration |
 | **[SubAgents Guide](subagents-guide.md)** | Delegation and custom agent roles |

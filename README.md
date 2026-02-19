@@ -26,6 +26,7 @@ This README is intentionally neutral and written for both developers and non-dev
 - [Configuration](#configuration)
   - [OpenRouter API key](#openrouter-api-key)
 - [Quickstart](#quickstart)
+- [API Mode (Programmatic Access)](#api-mode-programmatic-access)
 - [Commands reference (short)](#commands-reference-short)
 - [Developer notes](#developer-notes)
 - [Limitations & privacy](#limitations--privacy)
@@ -51,6 +52,7 @@ CIRI is a local CLI application that helps users interact with AI models and too
 - **Human-in-the-Loop (HITL)**: Approve, reject, or edit tool actions (shell commands, file edits) before they execute.
 - **Local Storage**: Checkpoint and conversation history stored in a local SQLite database.
 - **Extensible Architecture**: Easily add new skills and toolkits.
+- **Programmatic API Mode**: `--api` mode provides a persistent server with Unix socket interface for building custom UIs and backend integrations. Supports streaming events, thread state queries, and model/browser profile switching.
 
 ## Who should use it
 
@@ -207,6 +209,28 @@ You> /threads
 You> exit
 Goodbye!
 ```
+
+---
+
+## API Mode (Programmatic Access)
+
+For building custom UIs or backend integrations, use the **`--api` mode** with a persistent Unix socket server:
+
+```bash
+# Start the API server (holds copilot in memory)
+ciri --api --server &
+
+# Send commands from your backend/UI
+ciri --api --run --input '{"messages": [{"type": "human", "content": "Hello"}]}'
+ciri --api --state --config '{"configurable": {"thread_id": "..."}}'
+ciri --api --history --config '{"configurable": {"thread_id": "..."}}'
+ciri --api --change-model 'anthropic/claude-opus-4-6'
+ciri --api --change-browser-profile '{"browser": "chrome", "profile_directory": "Default"}'
+```
+
+All responses are **NDJSON** (newline-delimited JSON) streamed to stdout. The server auto-starts if needed.
+
+→ [Full API Reference](docs-site/docs/api-reference.md)
 
 ---
 

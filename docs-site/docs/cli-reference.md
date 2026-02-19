@@ -151,3 +151,38 @@ You > Read @files:docs/ARCHITECTURE.md and summarize the key decisions
 ```
 You > @subagents:web_researcher — research Q1 2026 SaaS pricing benchmarks
 ```
+
+---
+
+## API Mode (Non-Interactive)
+
+For programmatic access to CIRI (custom UIs, backend servers, automation), use the `--api` flag. This runs a persistent Unix socket server instead of the interactive TUI.
+
+→ [Full API Reference](api-reference.md)
+
+### Quick API Examples
+
+```bash
+# Start server (one-time, keeps running)
+ciri --api --server &
+
+# Stream a run as NDJSON
+ciri --api --run --input '{"messages": [{"type": "human", "content": "Hi"}]}'
+
+# Get thread state
+ciri --api --state --config '{"configurable": {"thread_id": "my-thread"}}'
+
+# Get thread history
+ciri --api --history --config '{"configurable": {"thread_id": "my-thread"}}' --limit 5
+
+# Change model (rebuilds copilot, reuses checkpoints)
+ciri --api --change-model 'anthropic/claude-opus-4-6'
+
+# Change browser profile
+ciri --api --change-browser-profile '{"browser": "chrome", "profile_directory": "Default"}'
+
+# Health check
+ciri --api --health
+```
+
+All responses are **NDJSON** — one JSON object per line. Read until `{"type": "done"}` to know when the server finishes sending.
