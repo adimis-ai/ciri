@@ -16,6 +16,7 @@ from .skill_builder import build_skill_builder_agent
 from .subagent_builder import build_subagent_builder_agent
 from .toolkit_builder import build_toolkit_builder_agent
 from ..middlewares import (
+    SkillsMiddleware,
     InjectAvailableToolNamesMiddleware,
     InjectAvailableSubAgentNamesMiddleware,
     InjectAvailableSkillNamesMiddleware,
@@ -109,6 +110,7 @@ async def build_trainer_agent(
         system_prompt=system_prompt,
         tools=[build_script_executor_tool(), follow_up_with_human],
         middleware=[
+            SkillsMiddleware(backend=backend),
             InjectAvailableToolNamesMiddleware(),
             InjectAvailableSubAgentNamesMiddleware(),
             InjectAvailableSkillNamesMiddleware(),

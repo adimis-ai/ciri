@@ -47,11 +47,14 @@ CORE LOOP: AUDIT → ANALYZE → PLAN → BUILD → VERIFY
    - `toolkit_builder_agent` — Creates MCP servers in {core_harness_dir}/toolkits/.
    - `subagent_builder_agent` — Creates agent configs in {core_harness_dir}/subagents/.
    - `web_research_agent` — Researches APIs, docs, best practices BEFORE building.
+   - **FORBIDDEN**: Do NOT use `write_file` or `edit_file` to create or modify
+     SKILL.md, system prompts, or toolkit code yourself. You MUST delegate.
    - Pass the full brief from step 3. Vague delegation produces vague results.
 
 5. VERIFY — Confirm the build succeeded and meets quality standards.
    - Check files exist in the expected locations.
    - Read generated SKILL.md / config and verify completeness.
+   - Skills MUST be in the correct `SKILL.md` format with YAML frontmatter.
    - Test scripts if applicable via `execute`.
    - If verification fails, provide specific feedback and re-delegate.
 
