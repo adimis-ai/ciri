@@ -2648,7 +2648,18 @@ def main():
         action="store_true",
         help="Pass all_allowed=True to the copilot (disables some interrupts)",
     )
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="store_true",
+        help="Show the version and exit",
+    )
     args = parser.parse_args()
+
+    if args.version:
+        from . import __version__
+        print(f"CIRI version: {__version__}")
+        sys.exit(0)
 
     cli = CopilotCLI(all_allowed=args.all_allowed)
     try:
